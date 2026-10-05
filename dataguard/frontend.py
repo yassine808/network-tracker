@@ -51,6 +51,23 @@ li .t{font-weight:600}li small{color:var(--mute);display:block}
 .row{display:grid;grid-template-columns:minmax(90px,170px) 1fr auto;gap:10px;align-items:center;font-size:14px}
 .row .meter{margin:0}
 details summary{cursor:pointer;font-weight:600}
+.apphead,.approw summary{display:grid;grid-template-columns:minmax(110px,200px) 1fr 76px 88px;gap:12px;align-items:center}
+.apphead{font-size:11.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--mute);padding-bottom:4px}
+.apphead[hidden]{display:none}
+.apphead span:nth-child(n+3){text-align:right}
+.approw{border-top:1px solid var(--line)}
+.approw summary{cursor:pointer;font-size:14px;padding:9px 0;list-style:none}
+.approw summary::-webkit-details-marker{display:none}
+.approw .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.approw .car{display:inline-block;color:var(--mute);margin-right:6px;transition:transform .15s}
+.approw[open] .car{transform:rotate(90deg)}
+.approw .meter{margin:0}
+.approw .v1,.approw .v2{text-align:right;font-variant-numeric:tabular-nums}
+.approw .v1{color:var(--mute)}
+.days{display:flex;gap:2px;align-items:flex-end;height:44px;margin:2px 0 6px}
+.days i{flex:1;min-height:2px;background:var(--acc);opacity:.55;border-radius:2px}
+.days i.z{background:var(--track);opacity:1}
+.daylbl{display:flex;justify-content:space-between;font-size:11px;color:var(--mute);padding-bottom:8px}
 .form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:14px 0}
 label{display:grid;gap:4px;font-size:13px;color:var(--mute)}
 label.chk{display:flex;gap:8px;align-items:center}
@@ -98,6 +115,11 @@ footer{font-size:12.5px;color:var(--mute)}
   <div class="actions"><button id="whoBtn" class="pri">Measure (3 s)</button>
   <span class="sub" id="whoNote">Estimated from per-app activity on this computer.</span></div>
   <div id="who" style="margin-top:12px;display:grid;gap:8px"></div></section>
+
+<section class="card"><h2>Data by app</h2>
+  <div class="sub" id="appsNote">Loading&hellip;</div>
+  <div class="apphead" id="appsHead" hidden><span>App</span><span>Share of this cycle</span><span>Today</span><span>This cycle</span></div>
+  <div id="apps"></div></section>
 
 <section class="card"><h2>Recent alerts</h2><ul id="alerts"></ul></section>
 
@@ -265,6 +287,44 @@ async function who() {
 }
 
 $("#whoBtn").onclick = who;
+
+function renderApps(a) {
+  const box = $("#apps"), note = $("#appsNote"), head = $("#appsHead");
+  if (!a.supported) {
+    head.hidden = true; box.replaceChildren();
+    note.textContent = "Per-app history only works on Windows.";
+    return;
+  }
+  note.textContent = a.err ? "Tracker problem: " + a.err
+    : "Estimated from per-app I/O counters while DataGuard runs \u2014 not exact network bytes.";
+  const rows = (a.apps || []).slice(0, 15), days = a.days || [];
+  head.hidden = !rows.length;
+  box.replaceChildren();
+  if (!rows.length) { box.appendChild(mk("div", "sub", "Nothing recorded yet \u2014 totals build up in the background.")); return; }
+  const share = a.total_cycle || 1;
+  rows.forEach(r => {
+    const d = mk("details", "approw"), s = mk("summary");
+    const nm = mk("span", "nm");
+    nm.append(mk("span", "car", "\u25b8"), document.createTextNode(r.app));
+    const m = mk("div", "meter"), i = mk("i");
+    i.style.width = Math.max(2, r.cycle / share * 100) + "%"; m.appendChild(i);
+    s.append(nm, m, mk("span", "v1", sz(r.today)), mk("span", "v2", sz(r.cycle)));
+    const barsBox = mk("div", "days"), top = Math.max(...Object.values(r.days), 1);
+    days.forEach(day => {
+      const b = r.days[day] || 0, bar = mk("i", b ? "" : "z");
+      bar.style.height = (b ? Math.max(4, b / top * 100) : 4) + "%";
+      bar.title = dstr(day) + ": " + sz(b);
+      barsBox.appendChild(bar);
+    });
+    const lbl = mk("div", "daylbl");
+    lbl.append(mk("span", "", days.length ? dstr(days[0]) : ""), mk("span", "", "last 30 days"),
+      mk("span", "", days.length ? dstr(days[days.length - 1]) : ""));
+    d.append(s, barsBox, lbl);
+    box.appendChild(d);
+  });
+  if (a.count > rows.length)
+    box.appendChild(mk("div", "sub", a.count + " apps recorded this cycle \u2014 showing the top " + rows.length + "."));
+}
 $("#save").onclick = async () => {
   try {
     await post("/api/config", {
@@ -292,6 +352,8 @@ $("#calBtn").onclick = async () => {
 async function tick() {
   try { render(await (await fetch("/api/status", {cache: "no-store"})).json()); }
   catch (e) { const c = $("#chip"); c.className = "chip warn"; c.textContent = "Can't reach DataGuard"; console.error(e); }
+  try { renderApps(await (await fetch("/api/apps", {cache: "no-store"})).json()); }
+  catch (e) { console.error(e); }
   clearTimeout(timer);
   if (!document.hidden) timer = setTimeout(tick, 2000);   // no polling while the tab is hidden
 }

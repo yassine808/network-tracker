@@ -2,6 +2,7 @@
 
 import json
 import threading
+from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .common import APP, IS_WIN
@@ -9,6 +10,7 @@ from .frontend import PAGE
 from .interfaces import get_ssid
 from .notify import notify
 from .processes import top_processes
+from .settings import cycle_bounds
 
 TOP_LOCK = threading.Lock()
 
@@ -19,7 +21,8 @@ class Server(ThreadingHTTPServer):
 
 
 class Handler(BaseHTTPRequestHandler):
-    mon = None  # set before serving
+    mon = None     # set before serving
+    tracker = None  # set before serving
 
     def log_message(self, *args):
         pass
@@ -64,6 +67,13 @@ class Handler(BaseHTTPRequestHandler):
                     TOP_LOCK.release()
             elif path == "/api/ssid":
                 self._json({"ssid": get_ssid()})
+            elif path == "/api/apps":
+                if self.tracker is None:
+                    return self._json({"supported": False, "apps": [], "count": 0,
+                                       "total_today": 0, "total_cycle": 0, "days": [],
+                                       "interval": 0, "err": "tracker not running"})
+                start, _ = cycle_bounds(date.today(), self.mon.store.cfg["reset_day"])
+                self._json(self.tracker.snapshot(start, date.today()))
             else:
                 self._json({"error": "not found"}, 404)
         except (BrokenPipeError, ConnectionError):

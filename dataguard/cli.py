@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from .apps import AppStore, AppTracker
 from .common import IS_WIN, psutil
 from .interfaces import WIFI, VIRTUAL, auto_iface
 from .live import Monitor
@@ -73,7 +74,10 @@ def cmd_run(args, home):
         if args.open:
             webbrowser.open(url)
         return 0
+    tracker = AppTracker(AppStore(home))
+    Handler.tracker = tracker
     threading.Thread(target=server.serve_forever, daemon=True).start()
+    tracker.start()
     try:
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     except (ValueError, OSError):
@@ -86,6 +90,7 @@ def cmd_run(args, home):
     except (KeyboardInterrupt, SystemExit):
         pass
     finally:
+        tracker.stop()
         store.flush(force=True)
     return 0
 
