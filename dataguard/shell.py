@@ -24,7 +24,7 @@ except ImportError:
     HAVE_SHELL = False
 
 TITLE = "DataGuard"
-WM_SETICON, ICON_SMALL, ICON_BIG = 0x80, 0, 1
+WM_SETICON, WM_GETICON, ICON_SMALL, ICON_BIG = 0x80, 0x7F, 0, 1
 IMAGE_ICON, LR_LOADFROMFILE = 1, 0x10
 GCLP_HICON, GCLP_HICONSM = -14, -34  # window-class icons: what the taskbar/Alt-Tab fall back to
 _icon_handles = []  # SendMessage handed these to the window: they must outlive the call
@@ -82,8 +82,9 @@ def _window_icon(path):
         hwnd = u32.FindWindowW(None, TITLE)
         if not hwnd:
             return
-        small = u32.LoadImageW(None, path, IMAGE_ICON, 0, 0, LR_LOADFROMFILE)
-        big = u32.LoadImageW(None, path, IMAGE_ICON, 0, 0, LR_LOADFROMFILE)
+        # cx/cy pick the frame: 0 loads the file's first (16 px) image for both sizes
+        small = u32.LoadImageW(None, path, IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
+        big = u32.LoadImageW(None, path, IMAGE_ICON, 48, 48, LR_LOADFROMFILE)
         if small:
             _icon_handles.append(small)  # the window keeps pointing at it
             u32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, small)
@@ -92,8 +93,12 @@ def _window_icon(path):
             _icon_handles.append(big)
             u32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, big)
             u32.SetClassLongPtrW(hwnd, GCLP_HICON, big)
-    except Exception:
-        pass  # cosmetic: the default icon stays
+        got = u32.SendMessageW(hwnd, WM_GETICON, ICON_BIG, 0)  # what the shell reads back
+        if not (small and big and got):
+            logging.warning("window icon partial: small=%s big=%s readback=%s",
+                            bool(small), bool(big), bool(got))
+    except Exception as e:
+        logging.warning("window icon failed: %s", e)  # cosmetic, but never silent
 
 
 def _dark_titlebar():

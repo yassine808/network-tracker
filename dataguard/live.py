@@ -41,6 +41,7 @@ class Monitor:
         self.err = ""
         self.stop = threading.Event()
         self.wake = threading.Event()     # lets a freshly opened dashboard end the slow idle sleep
+        psutil.cpu_percent(interval=None)  # start the CPU meter: first call only sets the baseline
 
     # -- sampling
     def sample(self, now=None, counters=None, stats=None):
@@ -284,6 +285,7 @@ class Monitor:
         pending = bool(s["cfg"].get("ssid")) and s["today"] >= KILL_GB * self.store.gb \
             and not fired_kill and not bool(self.kill_state)
         s.update(iface=self.iface, ssid=self.ssid, counting=self.counting, err=self.err,
+                 cpu=psutil.cpu_percent(interval=None), mem=psutil.virtual_memory().percent,
                  warn_today=warn_today,
                  kill=dict(active=bool(self.kill_state), pending=pending, gb=KILL_GB, fired=fired_kill),
                  ifaces=sorted(psutil.net_io_counters(pernic=True)),
