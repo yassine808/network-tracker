@@ -1,6 +1,7 @@
 """System tray icon + native dashboard window (pystray + pywebview). Optional: without them the browser still works."""
 
 import ctypes
+import logging
 import os
 import sys
 import tempfile
@@ -98,6 +99,37 @@ def _window_icon(path):
 _win_act = None  # run() installs this: the HTML titlebar buttons act on the open window
 
 
+def _window_shadow():
+    """Native drop shadow on the frameless window: a 1 px DWM frame makes Windows draw the outer
+    shadow, like a normal window. Cosmetic: any failure just leaves the window flat."""
+    if windll is None:
+        return
+    try:
+        from ctypes import wintypes
+
+        class MARGINS(ctypes.Structure):
+            _fields_ = [("cxLeftWidth", ctypes.c_int), ("cxRightWidth", ctypes.c_int),
+                        ("cyTopHeight", ctypes.c_int), ("cyBottomHeight", ctypes.c_int)]
+
+        u32 = _user32()
+        hwnd = u32.FindWindowW(None, TITLE)
+        if not hwnd:
+            return
+        dwm = ctypes.WinDLL("dwmapi")
+        dwm.DwmExtendFrameIntoClientArea.argtypes = (wintypes.HWND, ctypes.POINTER(MARGINS))
+        dwm.DwmExtendFrameIntoClientArea.restype = ctypes.c_long  # HRESULT
+        dwm.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(MARGINS(1, 1, 1, 1)))
+        # private loader: typing SetWindowPos on the shared windll would break pywebview's window.move()
+        pub = ctypes.WinDLL("user32")
+        pub.SetWindowPos.argtypes = (wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
+                                     ctypes.c_int, ctypes.c_int, ctypes.c_uint)
+        pub.SetWindowPos.restype = wintypes.BOOL
+        pub.SetWindowPos(hwnd, None, 0, 0, 0, 0,
+                         0x0001 | 0x0002 | 0x0004 | 0x0020)  # NOSIZE|NOMOVE|NOZORDER|FRAMECHANGE
+    except Exception:
+        pass  # cosmetic
+
+
 def win_action(act):
     """"min"/"close" from the HTML titlebar (via /api/win). No window open: no-op."""
     if _win_act is None:
@@ -189,7 +221,7 @@ def run(url, open_now=False):
         try:
             icon.run()
         except Exception as e:
-            print(f"Tray icon failed: {e}", flush=True)
+            logging.error("Tray icon failed: %s", e)
 
     threading.Thread(target=run_tray, daemon=True).start()
     if open_now:
@@ -210,6 +242,7 @@ def run(url, open_now=False):
                                           frameless=True, easy_drag=False)  # fixed size; the HTML draws its own titlebar
 
                 def on_shown():
+                    _window_shadow()
                     _window_icon(ico)
                     threading.Timer(1.0, _window_icon, (ico,)).start()  # beat Windows' cached taskbar icon
 
@@ -227,7 +260,7 @@ def run(url, open_now=False):
                 holder["win"] = None
             except Exception as e:  # no WebView2, window failed to load, ...: browser still works
                 holder.update(win=None, broken=True)
-                print(f"App window unavailable: {e} - opening the dashboard in the browser.", flush=True)
+                logging.error("App window unavailable: %s - opening the dashboard in the browser.", e)
                 webbrowser.open(url)
     except (KeyboardInterrupt, SystemExit):
         pass
