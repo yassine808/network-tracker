@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DataGuard</title>
+<link rel="icon" href="data:,">
+<style>
+:root{color-scheme:light dark;
+--bg:#edf0ec;--card:#fafbf9;--ink:#16211d;--mute:#5f6b66;--line:#d9dfd9;--acc:#2456d6;--accink:#fff;--up:#a24bd0;
+--ok:#1b8a5a;--warn:#c26a00;--bad:#d1342c;--track:#dde3dd;--wash:#f1f4f0;
+--f:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
+--fd:"Segoe UI Variable Display","Segoe UI Light","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif}
+@media(prefers-color-scheme:dark){:root{--bg:#0d1210;--card:#151c19;--ink:#e6ede9;--mute:#8a9791;--line:#25302b;--acc:#6ea0ff;--accink:#07111f;--up:#cfa3f2;
+--ok:#46c28a;--warn:#e8a33a;--bad:#ff6b61;--track:#26312c;--wash:#111815}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--f);font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+main{max-width:1040px;margin:0 auto;padding:26px 18px 60px;display:grid;gap:16px}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:6px}
+
+/* header */
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-bottom:4px}
+.brand{display:flex;align-items:center;gap:10px}
+.brand svg{width:26px;height:26px;color:var(--acc)}
+h1{margin:0;font-size:19px;font-weight:650;letter-spacing:-.015em}
+.chip{display:inline-flex;align-items:center;gap:8px;font-size:13px;padding:5px 12px 5px 10px;border-radius:99px;background:var(--card);border:1px solid var(--line);color:var(--mute)}
+.chip::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--mute);opacity:.6}
+.chip.ok{color:var(--ink)}.chip.ok::before{background:var(--ok);opacity:1;box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 25%,transparent)}
+.chip.warn{color:var(--ink)}.chip.warn::before{background:var(--warn);opacity:1}
+
+/* surfaces */
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px 22px}
+h2{margin:0 0 12px;font-size:14px;font-weight:650;letter-spacing:-.005em}
+h3{margin:0 0 2px;font-size:13px;font-weight:650}
+.sub{color:var(--mute);font-size:13.5px}
+.two{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+
+/* hero: the dial + the number you care about */
+.hero{display:grid;grid-template-columns:auto 1fr;gap:12px 40px;align-items:center;padding:26px 28px}
+#ring{width:210px;height:210px}
+.trk,.arc{fill:none;stroke-width:12}
+.trk{stroke:var(--track);stroke-dasharray:1.5 3.95}
+.arc{stroke:var(--ok);stroke-linecap:butt;stroke-dasharray:0 400;transition:stroke-dasharray .6s,stroke .3s}
+.big{font:300 27px var(--fd);fill:var(--ink);letter-spacing:-.02em}
+.lead span{font-size:14px;color:var(--mute)}
+.lead b{display:block;font:300 clamp(48px,9vw,78px)/1.02 var(--fd);letter-spacing:-.035em;margin:2px 0 4px}
+.lead small{display:block;color:var(--mute);font-size:13.5px;min-height:1.4em}
+.facts{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin:6px -4px 0;border-top:1px solid var(--line);padding-top:16px}
+.facts>div{padding:0 18px 0 4px}
+.facts>div+div{padding-left:18px;border-left:1px solid var(--line)}
+.facts span{display:block;font-size:13px;color:var(--mute)}
+.facts b{display:block;font-size:22px;font-weight:600;letter-spacing:-.02em;margin:1px 0}
+.facts small{display:block;color:var(--mute);font-size:12.5px}
+@media(max-width:700px){.hero{grid-template-columns:1fr;justify-items:center;text-align:center;padding:22px 18px}.facts{margin:6px 0 0}.facts>div,.facts>div+div{padding:10px 0;border-left:0;text-align:left}}
+.hint{margin:0;font-size:13.5px;color:var(--mute);padding:10px 14px;border-left:3px solid var(--acc);background:var(--card);border-radius:0 10px 10px 0}
+
+/* today / pace / live strip */
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));padding:0}
+.strip>section{padding:20px 22px}
+.strip>section+section{border-left:1px solid var(--line)}
+@media(max-width:820px){.strip>section+section{border-left:0;border-top:1px solid var(--line)}}
+.num{font:300 34px/1.1 var(--fd);letter-spacing:-.03em}
+.meter{height:8px;background:var(--track);border-radius:99px;overflow:hidden;margin:12px 0 8px}
+.meter i{display:block;height:100%;width:0;background:var(--ok);border-radius:99px;transition:width .5s,background .3s}
+.tag{display:inline-block;font-size:13px;font-weight:650;padding:3px 11px;border-radius:99px;background:color-mix(in srgb,currentColor 12%,transparent)}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+svg text{font-family:inherit}
+#spark{width:100%;height:58px;display:block;margin-top:10px}
+#spark polyline{fill:none;stroke-width:1.8;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+#sd{stroke:var(--acc)}#su{stroke:var(--up)}
+.live .k{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+
+/* 30-day chart */
+#bars{width:100%;height:auto;display:block}
+.col{fill:var(--acc);opacity:.35}.col.today{opacity:1}
+.allow{stroke:var(--warn);stroke-width:1.2;stroke-dasharray:4 3}
+.axis{font-size:10px;fill:var(--mute)}
+
+/* controls */
+button{font:inherit;font-size:14px;padding:8px 15px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;transition:border-color .15s,background .15s}
+button:hover{border-color:var(--acc)}button:disabled{opacity:.6;cursor:default}
+button.pri{background:var(--acc);color:var(--accink);border-color:transparent;font-weight:650}
+button.pri:hover{filter:brightness(1.08)}
+.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+#msg{font-size:13px;color:var(--mute)}
+input,select{font:inherit;padding:8px 11px;border-radius:9px;border:1px solid var(--line);background:var(--wash);color:var(--ink);min-width:0}
+input:focus,select:focus{border-color:var(--acc)}
+label{display:grid;gap:5px;font-size:13px;color:var(--mute)}
+label.chk{display:flex;gap:9px;align-items:center;color:var(--ink)}
+input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
+
+/* who is using data */
+.row{display:grid;grid-template-columns:minmax(90px,170px) 1fr auto;gap:12px;align-items:center;font-size:14px}
+.row .meter{margin:0}
+
+/* alerts */
+ul{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+li{padding-left:12px;border-left:3px solid var(--warn)}
+li .t{font-weight:650}li small{color:var(--mute);display:block;font-size:12.5px}
+li.sub{border-left-color:var(--line)}
+
+/* apps table */
+.apphead,.approw summary{display:grid;grid-template-columns:minmax(110px,200px) 1fr 76px 88px;gap:14px;align-items:center}
+.apphead{font-size:12.5px;color:var(--mute);padding:12px 0 6px}
+.apphead[hidden]{display:none}
+.apphead span:nth-child(n+3){text-align:right}
+.approw{border-top:1px solid var(--line)}
+.approw summary{cursor:pointer;font-size:14px;padding:10px 0;list-style:none}
+.approw summary::-webkit-details-marker{display:none}
+.approw summary:hover .nm{color:var(--acc)}
+.approw .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.approw .car{display:inline-block;color:var(--mute);margin-right:6px;transition:transform .15s}
+.approw[open] .car{transform:rotate(90deg)}
+.approw .meter{margin:0}
+.approw .v1,.approw .v2{text-align:right}
+.approw .v1{color:var(--mute)}
+.days{display:flex;gap:2px;align-items:flex-end;height:48px;margin:2px 0 6px;padding:0 4px}
+.days i{flex:1;min-height:2px;background:var(--acc);opacity:.6;border-radius:2px 2px 0 0}
+.days i.z{background:var(--track);opacity:1}
+.daylbl{display:flex;justify-content:space-between;font-size:11.5px;color:var(--mute);padding:0 4px 10px}
+
+/* settings */
+details.set>summary{cursor:pointer;font-weight:650;font-size:14px}
+.group{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+.group>p{margin:0 0 12px}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin:0 0 14px}
+footer{font-size:12.5px;color:var(--mute);text-align:center;padding-top:6px}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+@media(max-width:560px){.apphead,.approw summary{grid-template-columns:minmax(80px,1fr) 60px 70px}.apphead span:nth-child(2),.approw summary .meter{display:none}.row{grid-template-columns:1fr 1fr auto}}
+</style></head>
+<body><main>
+<header>
+  <div class="brand">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8.3 7.5 9.5 4.4-1.2 7.5-4.9 7.5-9.5V6L12 3Z"/><path d="M8.5 13.5 11 11l2 2 2.5-3"/></svg>
+    <h1>DataGuard</h1>
+  </div>
+  <span id="chip" class="chip">Connecting&hellip;</span>
+</header>
+
+<section class="card hero">
+  <svg id="ring" viewBox="0 0 120 120" role="img" aria-label="Share of data budget used">
+    <circle class="trk" cx="60" cy="60" r="52"/>
+    <circle id="arc" class="arc" cx="60" cy="60" r="52" transform="rotate(-90 60 60)"/>
+    <text id="pct" class="big" x="60" y="69" text-anchor="middle">-</text>
+  </svg>
+  <div class="lead"><span id="remk">Left in budget</span><b id="rem">-</b><small id="remn"></small></div>
+  <div class="facts">
+    <div><span>Used this cycle</span><b id="used">-</b><small id="plan"></small></div>
+    <div><span>Days to renewal</span><b id="days">-</b><small id="renew"></small></div>
+    <div><span>Safe daily allowance</span><b id="allow">-</b><small>to last until renewal</small></div>
+  </div>
+</section>
+<p class="hint" id="hint" hidden></p>
+
+<div class="card strip">
+  <section><h2>Today</h2>
+    <div class="num" id="today">-</div>
+    <div class="meter"><i id="tbar"></i></div>
+    <div class="sub" id="tnote"></div></section>
+  <section><h2>Pace</h2>
+    <span class="tag" id="ptag">-</span>
+    <p class="sub" id="pnote" style="margin:12px 0 0"></p></section>
+  <section class="live"><h2>Right now</h2>
+    <div><span class="num" id="down">-</span> <span class="sub">down</span></div>
+    <div class="sub"><span id="up">-</span> up<span id="nc"></span></div>
+    <svg id="spark" viewBox="0 0 300 56" preserveAspectRatio="none"><polyline id="sd"/><polyline id="su"/></svg></section>
+</div>
+
+<section class="card"><h2>Last 30 days</h2><svg id="bars" viewBox="0 0 600 160"></svg></section>
+
+<div class="two">
+  <section class="card"><h2>Who's using data right now?</h2>
+    <div class="actions"><button id="whoBtn" class="pri">Measure (3 s)</button></div>
+    <p class="sub" id="whoNote" style="margin:10px 0 0">Estimated from per-app activity on this computer.</p>
+    <div id="who" style="margin-top:12px;display:grid;gap:10px"></div></section>
+  <section class="card"><h2>Recent alerts</h2><ul id="alerts"></ul></section>
+</div>
+
+<section class="card"><h2>Data by app</h2>
+  <div class="sub" id="appsNote">Loading&hellip;</div>
+  <div class="apphead" id="appsHead" hidden><span>App</span><span>Share of this cycle</span><span>Today</span><span>This cycle</span></div>
+  <div id="apps"></div></section>
+
+<section class="card"><details class="set"><summary>Settings &amp; calibration</summary>
+  <div class="group"><h3>Plan</h3><p class="sub">Your data allowance and when it resets.</p>
+    <div class="form">
+      <label>Plan size (GB)<input id="f_plan" type="number" min="1" step="1"></label>
+      <label>Renewal day of month<input id="f_day" type="number" min="1" max="31"></label>
+      <label>Reserve (% kept untouched)<input id="f_res" type="number" min="0" max="50" step="1"></label>
+      <label class="chk"><input id="f_bin" type="checkbox"> My carrier counts 1 GB = 1024 MB</label>
+    </div></div>
+  <div class="group"><h3>Network</h3><p class="sub">Choose which traffic counts toward your plan.</p>
+    <div class="form">
+      <label>Phone hotspot Wi-Fi name<input id="f_ssid" placeholder="empty = count the whole interface"></label>
+      <label>Network interface<select id="f_iface"></select></label>
+    </div></div>
+  <div class="group"><h3>Alerts</h3><p class="sub">Get warned before the budget runs out.</p>
+    <div class="form">
+      <label>Alert at (% of budget, comma separated)<input id="f_alerts"></label>
+      <label>Warn above (MB per minute, 0 = off)<input id="f_burst" type="number" min="0"></label>
+      <label class="chk"><input id="f_notify" type="checkbox"> Desktop notifications</label>
+    </div></div>
+  <div class="actions"><button class="pri" id="save">Save changes</button>
+    <button id="useSsid">Use the Wi-Fi I'm on now</button>
+    <button id="test">Test notification</button><span id="msg"></span></div>
+  <div class="group"><h3>Calibrate</h3>
+    <p class="sub">The laptop only sees its own traffic; your carrier also counts your phone's. Calibrate every few days
+    (check your carrier's app) and the totals stay exact.</p>
+    <div class="actions">
+      <label>Carrier says I've used (GB) this cycle<input id="f_cal" type="number" min="0" step="0.1"></label>
+      <button id="calBtn">Calibrate</button></div></div>
+</details></section>
+<footer>Everything stays on this computer. DataGuard makes no internet connections of its own.</footer>
+</main>
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const NS = "http://www.w3.org/2000/svg";
+let U = {gb: 1e9, mb: 1e6}, filled = false, timer = 0, msgTimer = 0;
+
+const gb = b => { const v = b / U.gb; return (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1)) + " GB"; };
+const sz = b => {
+  const a = Math.abs(b);
+  if (a >= U.gb) return (b / U.gb).toFixed(2) + " GB";
+  if (a >= U.mb) return (b / U.mb).toFixed(a >= 10 * U.mb ? 0 : 1) + " MB";
+  return Math.round(b / (U.mb / 1000)) + " KB";
+};
+const dstr = iso => new Date(iso + "T12:00:00").toLocaleDateString(undefined, {month: "short", day: "numeric"});
+const txt = (sel, t) => { $(sel).textContent = t; };
+const tone = p => p >= 90 ? "var(--bad)" : p >= 75 ? "var(--warn)" : "var(--ok)";
+const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+const svg = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
+const msg = t => { txt("#msg", t); clearTimeout(msgTimer); msgTimer = setTimeout(() => txt("#msg", ""), 6000); };
+
+function spark(down, up) {
+  const W = 300, H = 56, max = Math.max(50000, ...down, ...up);
+  const pts = a => a.map((v, i) => (i * W / (a.length - 1)).toFixed(1) + "," + (H - 2 - v / max * (H - 6)).toFixed(1)).join(" ");
+  $("#sd").setAttribute("points", pts(down));
+  $("#su").setAttribute("points", pts(up));
+}
+
+function bars(hist, allow) {
+  const el = $("#bars"); el.replaceChildren();
+  const W = 600, H = 160, pad = 16, n = hist.length, y0 = H - pad, bw = W / n;
+  const top = Math.max(allow || 0, ...hist.map(h => h.b), 1) * 1.12;
+  hist.forEach((h, i) => {
+    const bh = h.b / top * (y0 - 4);
+    const r = svg("rect", {class: i === n - 1 ? "col today" : "col", x: (i * bw + 1.5).toFixed(1), y: (y0 - bh).toFixed(1),
+      width: Math.max(bw - 3, 1).toFixed(1), height: Math.max(bh, h.b > 0 ? 1 : 0).toFixed(1), rx: 2});
+    const t = svg("title", {}); t.textContent = dstr(h.d) + ": " + sz(h.b); r.appendChild(t); el.appendChild(r);
+  });
+  if (allow > 0) {
+    const y = (y0 - allow / top * (y0 - 4)).toFixed(1);
+    el.appendChild(svg("line", {class: "allow", x1: 0, x2: W, y1: y, y2: y}));
+  }
+  [[0, "start", 0], [Math.floor(n / 2), "middle", W / 2], [n - 1, "end", W]].forEach(([i, a, x]) => {
+    const t = svg("text", {class: "axis", x: x, y: H - 3, "text-anchor": a});
+    t.textContent = dstr(hist[i].d); el.appendChild(t);
+  });
+}
+
+function fillForm(s) {
+  const c = s.cfg;
+  $("#f_plan").value = c.plan_gb; $("#f_day").value = c.reset_day; $("#f_res").value = c.reserve_pct;
+  $("#f_ssid").value = c.ssid; $("#f_alerts").value = c.alert_pcts.join(", "); $("#f_burst").value = c.burst_mb_per_min;
+  $("#f_bin").checked = c.binary_gb; $("#f_notify").checked = c.notify;
+  const sel = $("#f_iface"); sel.replaceChildren();
+  ["auto"].concat(s.ifaces).forEach(n => sel.appendChild(mk("option", "", n === "auto" ? "auto (" + (s.iface || "?") + ")" : n)));
+  Array.from(sel.options).forEach(o => { o.value = o.textContent.startsWith("auto (") ? "auto" : o.textContent; });
+  sel.value = c.iface; filled = true;
+}
+
+function render(s) {
+  U = {gb: s.unit_gb, mb: s.unit_mb};
+  const C = 2 * Math.PI * 52, p = Math.max(0, Math.min(s.pct, 100));
+  const arc = $("#arc");
+  arc.style.strokeDasharray = (C * p / 100) + " " + C;
+  arc.style.stroke = tone(s.pct);
+  txt("#pct", Math.round(s.pct) + "%");
+  txt("#used", sz(s.used));
+  txt("#plan", "of " + gb(s.budget) + " budget (plan " + gb(s.plan) + ")");
+  const left = s.budget - s.used;
+  txt("#remk", left >= 0 ? "Left in budget" : "Over budget by");
+  txt("#rem", sz(Math.abs(left)));
+  txt("#remn", s.reserve_pct ? gb(s.plan - s.budget) + " reserve kept on top" : "");
+  txt("#days", String(s.days_left));
+  txt("#renew", "renews " + dstr(s.cycle_end));
+  txt("#allow", gb(s.allowance));
+
+  const chip = $("#chip");
+  if (s.err) { chip.className = "chip warn"; chip.textContent = "Error: " + s.err; }
+  else if (s.counting === null) { chip.className = "chip"; chip.textContent = "Starting\u2026"; }
+  else if (s.counting) { chip.className = "chip ok"; chip.textContent = "Counting \u00b7 " + (s.cfg.ssid || s.iface || "?"); }
+  else { chip.className = "chip"; chip.textContent = "Not counted \u00b7 on " + (s.ssid ? "\u201c" + s.ssid + "\u201d" : "another network"); }
+
+  txt("#today", sz(s.today));
+  const r = s.allowance > 0 ? s.today / s.allowance : (s.today > 0 ? 2 : 0);
+  const tb = $("#tbar"); tb.style.width = Math.min(100, r * 100) + "%"; tb.style.background = tone(r * 100);
+  txt("#tnote", s.allowance <= 0 ? "No allowance left this cycle"
+    : s.today <= s.allowance ? sz(s.allowance - s.today) + " left of today's " + gb(s.allowance)
+    : "Over today's " + gb(s.allowance) + " allowance by " + sz(s.today - s.allowance));
+
+  const tag = $("#ptag"), note = $("#pnote");
+  if (s.pct >= 100) { tag.className = "tag bad"; tag.textContent = "Over budget"; note.textContent = "The " + gb(s.budget) + " budget is used up with " + s.days_left + " days to go. Keep to essentials."; }
+  else if (s.run_out) { tag.className = "tag bad"; tag.textContent = "Over pace"; note.textContent = "At ~" + gb(s.avg_daily) + "/day you'd run out around " + dstr(s.run_out) + ", " + s.days_early + " days early. Aim for " + gb(s.allowance) + "/day."; }
+  else if (s.pace_reliable) { tag.className = "tag ok"; tag.textContent = "On track"; note.textContent = "At ~" + gb(s.avg_daily) + "/day you'll finish the cycle near " + gb(s.projected) + " (" + Math.round(100 * s.projected / s.budget) + "% of budget)."; }
+  else { tag.className = "tag"; tag.textContent = "Learning"; note.textContent = "Needs a couple of full days of data before it can predict your pace."; }
+
+  txt("#down", sz(s.down) + "/s"); txt("#up", sz(s.up) + "/s");
+  txt("#nc", s.counting === false ? "  \u00b7  not counted" : "");
+  spark(s.series_down, s.series_up);
+  bars(s.history, s.allowance);
+
+  const ul = $("#alerts"); ul.replaceChildren();
+  if (!s.alerts.length) ul.appendChild(mk("li", "sub", "Nothing yet."));
+  s.alerts.forEach(a => {
+    const li = mk("li"); li.append(mk("span", "t", a.title), mk("small", "", a.msg + " \u00b7 " + new Date(a.t).toLocaleString()));
+    ul.appendChild(li);
+  });
+
+  const tips = [];
+  if (!s.cfg.ssid) tips.push("Tip: open Settings and enter your phone's hotspot name so only that traffic is counted.");
+  if (!s.offset) tips.push("Tip: your phone's own traffic isn't visible here. Calibrate with your carrier's figure (Settings) to keep totals exact.");
+  const hint = $("#hint"); hint.hidden = !tips.length; hint.textContent = tips[0] || "";
+  if (!filled) fillForm(s);
+}
+
+async function post(path, body) {
+  const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+async function who() {
+  const b = $("#whoBtn"), box = $("#who"); b.disabled = true; b.textContent = "Measuring\u2026";
+  try {
+    const j = await (await fetch("/api/top")).json();
+    if (j.error) throw new Error(j.error);
+    box.replaceChildren();
+    txt("#whoNote", !j.supported ? "The per-app view only works on Windows."
+      : !j.items.length ? "Nothing noticeable is using the network right now."
+      : "Estimated from per-app activity over " + j.window + " s \u2014 relative, not exact bytes.");
+    j.items.forEach(it => {
+      const row = mk("div", "row"), m = mk("div", "meter"), i = mk("i");
+      i.style.width = Math.max(3, it.share * 100) + "%"; m.appendChild(i);
+      row.append(mk("span", "", it.name + (it.pids > 1 ? " \u00d7" + it.pids : "")), m, mk("span", "sub", "\u2248 " + sz(it.rate) + "/s"));
+      box.appendChild(row);
+    });
+    if (j.blind && j.blind.length) box.appendChild(mk("div", "sub", "Couldn't read: " + j.blind.join(", ") + ". Run DataGuard as administrator to include system services such as Windows Update."));
+  } catch (e) { txt("#whoNote", "Couldn't measure: " + e.message); }
+  b.disabled = false; b.textContent = "Measure again";
+}
+
+$("#whoBtn").onclick = who;
+
+function renderApps(a) {
+  const box = $("#apps"), note = $("#appsNote"), head = $("#appsHead");
+  if (!a.supported) {
+    head.hidden = true; box.replaceChildren();
+    note.textContent = "Per-app history only works on Windows.";
+    return;
+  }
+  note.textContent = a.err ? "Tracker problem: " + a.err
+    : "Estimated from per-app I/O counters while DataGuard runs \u2014 not exact network bytes.";
+  const rows = (a.apps || []).slice(0, 15), days = a.days || [];
+  head.hidden = !rows.length;
+  box.replaceChildren();
+  if (!rows.length) { box.appendChild(mk("div", "sub", "Nothing recorded yet \u2014 totals build up in the background.")); return; }
+  const share = a.total_cycle || 1;
+  rows.forEach(r => {
+    const d = mk("details", "approw"), s = mk("summary");
+    const nm = mk("span", "nm");
+    nm.append(mk("span", "car", "\u25b8"), document.createTextNode(r.app));
+    const m = mk("div", "meter"), i = mk("i");
+    i.style.width = Math.max(2, r.cycle / share * 100) + "%"; m.appendChild(i);
+    s.append(nm, m, mk("span", "v1", sz(r.today)), mk("span", "v2", sz(r.cycle)));
+    const barsBox = mk("div", "days"), top = Math.max(...Object.values(r.days), 1);
+    days.forEach(day => {
+      const b = r.days[day] || 0, bar = mk("i", b ? "" : "z");
+      bar.style.height = (b ? Math.max(4, b / top * 100) : 4) + "%";
+      bar.title = dstr(day) + ": " + sz(b);
+      barsBox.appendChild(bar);
+    });
+    const lbl = mk("div", "daylbl");
+    lbl.append(mk("span", "", days.length ? dstr(days[0]) : ""), mk("span", "", "last 30 days"),
+      mk("span", "", days.length ? dstr(days[days.length - 1]) : ""));
+    d.append(s, barsBox, lbl);
+    box.appendChild(d);
+  });
+  if (a.count > rows.length)
+    box.appendChild(mk("div", "sub", a.count + " apps recorded this cycle \u2014 showing the top " + rows.length + "."));
+}
+$("#save").onclick = async () => {
+  try {
+    await post("/api/config", {
+      plan_gb: +$("#f_plan").value, reset_day: +$("#f_day").value, reserve_pct: +$("#f_res").value,
+      ssid: $("#f_ssid").value, iface: $("#f_iface").value,
+      alert_pcts: $("#f_alerts").value.split(",").map(x => parseInt(x, 10)).filter(x => x > 0),
+      burst_mb_per_min: +$("#f_burst").value, binary_gb: $("#f_bin").checked, notify: $("#f_notify").checked});
+    filled = false; msg("Saved."); tick();
+  } catch (e) { msg(e.message); }
+};
+$("#useSsid").onclick = async () => {
+  try {
+    const j = await (await fetch("/api/ssid")).json();
+    if (j.ssid) { $("#f_ssid").value = j.ssid; msg("Filled in \u201c" + j.ssid + "\u201d \u2014 press Save."); }
+    else msg(j.ssid === "" ? "You're not on Wi-Fi right now." : "Couldn't read the Wi-Fi name on this system.");
+  } catch (e) { msg(e.message); }
+};
+$("#test").onclick = async () => { try { await post("/api/notify-test", {}); msg("Sent \u2014 look for a notification."); } catch (e) { msg(e.message); } };
+$("#calBtn").onclick = async () => {
+  const v = parseFloat($("#f_cal").value);
+  if (!(v >= 0)) return msg("Enter the GB your carrier reports.");
+  try { await post("/api/calibrate", {gb: v}); msg("Calibrated."); tick(); } catch (e) { msg(e.message); }
+};
+
+async function tick() {
+  try { render(await (await fetch("/api/status", {cache: "no-store"})).json()); }
+  catch (e) { const c = $("#chip"); c.className = "chip warn"; c.textContent = "Can't reach DataGuard"; console.error(e); }
+  try { renderApps(await (await fetch("/api/apps", {cache: "no-store"})).json()); }
+  catch (e) { console.error(e); }
+  clearTimeout(timer);
+  if (!document.hidden) timer = setTimeout(tick, 2000);   // no polling while the tab is hidden
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { clearTimeout(timer); tick(); } });
+tick();
+</script></body></html>
