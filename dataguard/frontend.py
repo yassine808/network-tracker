@@ -1,6 +1,7 @@
 """The dashboard: one self-contained HTML page (markup, styles, scripts)."""
 
 
+
 PAGE = r"""<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
@@ -8,102 +9,161 @@ PAGE = r"""<!doctype html>
 <title>DataGuard</title>
 <link rel="icon" href="data:,">
 <style>
-:root{color-scheme:light dark;--bg:#f4f6f9;--card:#fff;--ink:#101828;--mute:#667085;--line:#e4e7ec;--acc:#2563eb;--accink:#fff;--up:#9333ea;--ok:#16a34a;--warn:#d97706;--bad:#dc2626;--track:#e8ecf2}
-@media(prefers-color-scheme:dark){:root{--bg:#0b0f14;--card:#141a22;--ink:#e8edf3;--mute:#8b96a5;--line:#242d38;--acc:#5aa2ff;--accink:#06101f;--up:#c4a1ff;--ok:#3fb950;--warn:#e3a008;--bad:#f85149;--track:#243040}}
+:root{color-scheme:light dark;
+--bg:#edf0ec;--card:#fafbf9;--ink:#16211d;--mute:#5f6b66;--line:#d9dfd9;--acc:#2456d6;--accink:#fff;--up:#a24bd0;
+--ok:#1b8a5a;--warn:#c26a00;--bad:#d1342c;--track:#dde3dd;--wash:#f1f4f0;
+--f:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
+--fd:"Segoe UI Variable Display","Segoe UI Light","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif}
+@media(prefers-color-scheme:dark){:root{--bg:#0d1210;--card:#151c19;--ink:#e6ede9;--mute:#8a9791;--line:#25302b;--acc:#6ea0ff;--accink:#07111f;--up:#cfa3f2;
+--ok:#46c28a;--warn:#e8a33a;--bad:#ff6b61;--track:#26312c;--wash:#111815}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-main{max-width:960px;margin:0 auto;padding:22px 16px 56px;display:grid;gap:14px}
-header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-h1{margin:0;font-size:20px;letter-spacing:-.01em}
-h2{margin:0 0 10px;font-size:11.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--mute)}
-.chip{font-size:12.5px;padding:4px 11px;border-radius:99px;border:1px solid var(--line);background:var(--card);color:var(--mute)}
-.chip.ok{color:var(--ok);border-color:var(--ok)}.chip.warn{color:var(--warn);border-color:var(--warn)}
-.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
-.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(270px,1fr))}
-.hero{display:flex;gap:26px;align-items:center;flex-wrap:wrap}
-#ring{width:170px;height:170px;flex:none}
-.trk,.arc{fill:none;stroke-width:10}.trk{stroke:var(--track)}
-.arc{stroke:var(--ok);stroke-linecap:round;stroke-dasharray:0 400;transition:stroke-dasharray .6s,stroke .3s}
-.big{font-size:24px;font-weight:700;fill:var(--ink)}
-.facts{flex:1;min-width:260px;display:grid;grid-template-columns:repeat(2,minmax(120px,1fr));gap:16px 24px}
-.facts span{display:block;font-size:12.5px;color:var(--mute)}
-.facts b{font-size:22px;letter-spacing:-.02em}
-.facts small{display:block;color:var(--mute);font-size:12.5px}
-.num{font-size:28px;font-weight:700;letter-spacing:-.02em}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--f);font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+main{max-width:1040px;margin:0 auto;padding:26px 18px 60px;display:grid;gap:16px}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:6px}
+
+/* header */
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-bottom:4px}
+.brand{display:flex;align-items:center;gap:10px}
+.brand svg{width:26px;height:26px;color:var(--acc)}
+h1{margin:0;font-size:19px;font-weight:650;letter-spacing:-.015em}
+.chip{display:inline-flex;align-items:center;gap:8px;font-size:13px;padding:5px 12px 5px 10px;border-radius:99px;background:var(--card);border:1px solid var(--line);color:var(--mute)}
+.chip::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--mute);opacity:.6}
+.chip.ok{color:var(--ink)}.chip.ok::before{background:var(--ok);opacity:1;box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 25%,transparent)}
+.chip.warn{color:var(--ink)}.chip.warn::before{background:var(--warn);opacity:1}
+
+/* surfaces */
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px 22px}
+h2{margin:0 0 12px;font-size:14px;font-weight:650;letter-spacing:-.005em}
+h3{margin:0 0 2px;font-size:13px;font-weight:650}
 .sub{color:var(--mute);font-size:13.5px}
-.meter{height:8px;background:var(--track);border-radius:99px;overflow:hidden;margin:10px 0 6px}
+.two{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+
+/* hero: the dial + the number you care about */
+.hero{display:grid;grid-template-columns:auto 1fr;gap:12px 40px;align-items:center;padding:26px 28px}
+#ring{width:210px;height:210px}
+.trk,.arc{fill:none;stroke-width:12}
+.trk{stroke:var(--track);stroke-dasharray:1.5 3.95}
+.arc{stroke:var(--ok);stroke-linecap:butt;stroke-dasharray:0 400;transition:stroke-dasharray .6s,stroke .3s}
+.big{font:300 27px var(--fd);fill:var(--ink);letter-spacing:-.02em}
+.lead span{font-size:14px;color:var(--mute)}
+.lead b{display:block;font:300 clamp(48px,9vw,78px)/1.02 var(--fd);letter-spacing:-.035em;margin:2px 0 4px}
+.lead small{display:block;color:var(--mute);font-size:13.5px;min-height:1.4em}
+.facts{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin:6px -4px 0;border-top:1px solid var(--line);padding-top:16px}
+.facts>div{padding:0 18px 0 4px}
+.facts>div+div{padding-left:18px;border-left:1px solid var(--line)}
+.facts span{display:block;font-size:13px;color:var(--mute)}
+.facts b{display:block;font-size:22px;font-weight:600;letter-spacing:-.02em;margin:1px 0}
+.facts small{display:block;color:var(--mute);font-size:12.5px}
+@media(max-width:700px){.hero{grid-template-columns:1fr;justify-items:center;text-align:center;padding:22px 18px}.facts{margin:6px 0 0}.facts>div,.facts>div+div{padding:10px 0;border-left:0;text-align:left}}
+.hint{margin:0;font-size:13.5px;color:var(--mute);padding:10px 14px;border-left:3px solid var(--acc);background:var(--card);border-radius:0 10px 10px 0}
+
+/* today / pace / live strip */
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));padding:0}
+.strip>section{padding:20px 22px}
+.strip>section+section{border-left:1px solid var(--line)}
+@media(max-width:820px){.strip>section+section{border-left:0;border-top:1px solid var(--line)}}
+.num{font:300 34px/1.1 var(--fd);letter-spacing:-.03em}
+.meter{height:8px;background:var(--track);border-radius:99px;overflow:hidden;margin:12px 0 8px}
 .meter i{display:block;height:100%;width:0;background:var(--ok);border-radius:99px;transition:width .5s,background .3s}
-.tag{display:inline-block;font-size:12px;font-weight:600;padding:2px 9px;border-radius:99px;border:1px solid currentColor}
+.tag{display:inline-block;font-size:13px;font-weight:650;padding:3px 11px;border-radius:99px;background:color-mix(in srgb,currentColor 12%,transparent)}
 .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
 svg text{font-family:inherit}
-#spark{width:100%;height:58px;display:block;margin-top:8px}
+#spark{width:100%;height:58px;display:block;margin-top:10px}
 #spark polyline{fill:none;stroke-width:1.8;stroke-linejoin:round;vector-effect:non-scaling-stroke}
 #sd{stroke:var(--acc)}#su{stroke:var(--up)}
+.live .k{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+
+/* 30-day chart */
 #bars{width:100%;height:auto;display:block}
-.col{fill:var(--acc);opacity:.5}.col.today{opacity:1}
-.allow{stroke:var(--warn);stroke-width:1;stroke-dasharray:4 3}
+.col{fill:var(--acc);opacity:.35}.col.today{opacity:1}
+.allow{stroke:var(--warn);stroke-width:1.2;stroke-dasharray:4 3}
 .axis{font-size:10px;fill:var(--mute)}
-button{font:inherit;padding:8px 14px;border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+
+/* controls */
+button{font:inherit;font-size:14px;padding:8px 15px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;transition:border-color .15s,background .15s}
 button:hover{border-color:var(--acc)}button:disabled{opacity:.6;cursor:default}
-button.pri{background:var(--acc);color:var(--accink);border-color:transparent;font-weight:600}
-ul{list-style:none;margin:0;padding:0;display:grid;gap:10px}
-li .t{font-weight:600}li small{color:var(--mute);display:block}
-.row{display:grid;grid-template-columns:minmax(90px,170px) 1fr auto;gap:10px;align-items:center;font-size:14px}
+button.pri{background:var(--acc);color:var(--accink);border-color:transparent;font-weight:650}
+button.pri:hover{filter:brightness(1.08)}
+.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+#msg{font-size:13px;color:var(--mute)}
+input,select{font:inherit;padding:8px 11px;border-radius:9px;border:1px solid var(--line);background:var(--wash);color:var(--ink);min-width:0}
+input:focus,select:focus{border-color:var(--acc)}
+label{display:grid;gap:5px;font-size:13px;color:var(--mute)}
+label.chk{display:flex;gap:9px;align-items:center;color:var(--ink)}
+input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
+
+/* who is using data */
+.row{display:grid;grid-template-columns:minmax(90px,170px) 1fr auto;gap:12px;align-items:center;font-size:14px}
 .row .meter{margin:0}
-details summary{cursor:pointer;font-weight:600}
-.apphead,.approw summary{display:grid;grid-template-columns:minmax(110px,200px) 1fr 76px 88px;gap:12px;align-items:center}
-.apphead{font-size:11.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--mute);padding-bottom:4px}
+
+/* alerts */
+ul{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+li{padding-left:12px;border-left:3px solid var(--warn)}
+li .t{font-weight:650}li small{color:var(--mute);display:block;font-size:12.5px}
+li.sub{border-left-color:var(--line)}
+
+/* apps table */
+.apphead,.approw summary{display:grid;grid-template-columns:minmax(110px,200px) 1fr 76px 88px;gap:14px;align-items:center}
+.apphead{font-size:12.5px;color:var(--mute);padding:12px 0 6px}
 .apphead[hidden]{display:none}
 .apphead span:nth-child(n+3){text-align:right}
 .approw{border-top:1px solid var(--line)}
-.approw summary{cursor:pointer;font-size:14px;padding:9px 0;list-style:none}
+.approw summary{cursor:pointer;font-size:14px;padding:10px 0;list-style:none}
 .approw summary::-webkit-details-marker{display:none}
+.approw summary:hover .nm{color:var(--acc)}
 .approw .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .approw .car{display:inline-block;color:var(--mute);margin-right:6px;transition:transform .15s}
 .approw[open] .car{transform:rotate(90deg)}
 .approw .meter{margin:0}
-.approw .v1,.approw .v2{text-align:right;font-variant-numeric:tabular-nums}
+.approw .v1,.approw .v2{text-align:right}
 .approw .v1{color:var(--mute)}
-.days{display:flex;gap:2px;align-items:flex-end;height:44px;margin:2px 0 6px}
-.days i{flex:1;min-height:2px;background:var(--acc);opacity:.55;border-radius:2px}
+.days{display:flex;gap:2px;align-items:flex-end;height:48px;margin:2px 0 6px;padding:0 4px}
+.days i{flex:1;min-height:2px;background:var(--acc);opacity:.6;border-radius:2px 2px 0 0}
 .days i.z{background:var(--track);opacity:1}
-.daylbl{display:flex;justify-content:space-between;font-size:11px;color:var(--mute);padding-bottom:8px}
-.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:14px 0}
-label{display:grid;gap:4px;font-size:13px;color:var(--mute)}
-label.chk{display:flex;gap:8px;align-items:center}
-input,select{font:inherit;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);min-width:0}
-.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
-#msg{font-size:13px;color:var(--mute)}
-.hint{margin:0;font-size:13px;color:var(--mute)}
-footer{font-size:12.5px;color:var(--mute)}
+.daylbl{display:flex;justify-content:space-between;font-size:11.5px;color:var(--mute);padding:0 4px 10px}
+
+/* settings */
+details.set>summary{cursor:pointer;font-weight:650;font-size:14px}
+.group{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+.group>p{margin:0 0 12px}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin:0 0 14px}
+footer{font-size:12.5px;color:var(--mute);text-align:center;padding-top:6px}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+@media(max-width:560px){.apphead,.approw summary{grid-template-columns:minmax(80px,1fr) 60px 70px}.apphead span:nth-child(2),.approw summary .meter{display:none}.row{grid-template-columns:1fr 1fr auto}}
 </style></head>
 <body><main>
-<header><h1>DataGuard</h1><span id="chip" class="chip">connecting&hellip;</span></header>
+<header>
+  <div class="brand">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8.3 7.5 9.5 4.4-1.2 7.5-4.9 7.5-9.5V6L12 3Z"/><path d="M8.5 13.5 11 11l2 2 2.5-3"/></svg>
+    <h1>DataGuard</h1>
+  </div>
+  <span id="chip" class="chip">Connecting&hellip;</span>
+</header>
 
 <section class="card hero">
   <svg id="ring" viewBox="0 0 120 120" role="img" aria-label="Share of data budget used">
     <circle class="trk" cx="60" cy="60" r="52"/>
     <circle id="arc" class="arc" cx="60" cy="60" r="52" transform="rotate(-90 60 60)"/>
-    <text id="pct" class="big" x="60" y="68" text-anchor="middle">-</text>
+    <text id="pct" class="big" x="60" y="69" text-anchor="middle">-</text>
   </svg>
+  <div class="lead"><span id="remk">Left in budget</span><b id="rem">-</b><small id="remn"></small></div>
   <div class="facts">
     <div><span>Used this cycle</span><b id="used">-</b><small id="plan"></small></div>
-    <div><span id="remk">Left in budget</span><b id="rem">-</b><small id="remn"></small></div>
     <div><span>Days to renewal</span><b id="days">-</b><small id="renew"></small></div>
     <div><span>Safe daily allowance</span><b id="allow">-</b><small>to last until renewal</small></div>
   </div>
 </section>
 <p class="hint" id="hint" hidden></p>
 
-<div class="grid">
-  <section class="card"><h2>Today</h2>
+<div class="card strip">
+  <section><h2>Today</h2>
     <div class="num" id="today">-</div>
     <div class="meter"><i id="tbar"></i></div>
     <div class="sub" id="tnote"></div></section>
-  <section class="card"><h2>Pace</h2>
+  <section><h2>Pace</h2>
     <span class="tag" id="ptag">-</span>
-    <p class="sub" id="pnote" style="margin:10px 0 0"></p></section>
-  <section class="card"><h2>Live</h2>
+    <p class="sub" id="pnote" style="margin:12px 0 0"></p></section>
+  <section class="live"><h2>Right now</h2>
     <div><span class="num" id="down">-</span> <span class="sub">down</span></div>
     <div class="sub"><span id="up">-</span> up<span id="nc"></span></div>
     <svg id="spark" viewBox="0 0 300 56" preserveAspectRatio="none"><polyline id="sd"/><polyline id="su"/></svg></section>
@@ -111,38 +171,47 @@ footer{font-size:12.5px;color:var(--mute)}
 
 <section class="card"><h2>Last 30 days</h2><svg id="bars" viewBox="0 0 600 160"></svg></section>
 
-<section class="card"><h2>Who's using data right now?</h2>
-  <div class="actions"><button id="whoBtn" class="pri">Measure (3 s)</button>
-  <span class="sub" id="whoNote">Estimated from per-app activity on this computer.</span></div>
-  <div id="who" style="margin-top:12px;display:grid;gap:8px"></div></section>
+<div class="two">
+  <section class="card"><h2>Who's using data right now?</h2>
+    <div class="actions"><button id="whoBtn" class="pri">Measure (3 s)</button></div>
+    <p class="sub" id="whoNote" style="margin:10px 0 0">Estimated from per-app activity on this computer.</p>
+    <div id="who" style="margin-top:12px;display:grid;gap:10px"></div></section>
+  <section class="card"><h2>Recent alerts</h2><ul id="alerts"></ul></section>
+</div>
 
 <section class="card"><h2>Data by app</h2>
   <div class="sub" id="appsNote">Loading&hellip;</div>
   <div class="apphead" id="appsHead" hidden><span>App</span><span>Share of this cycle</span><span>Today</span><span>This cycle</span></div>
   <div id="apps"></div></section>
 
-<section class="card"><h2>Recent alerts</h2><ul id="alerts"></ul></section>
-
-<section class="card"><details><summary>Settings &amp; calibration</summary>
-  <div class="form">
-    <label>Plan size (GB)<input id="f_plan" type="number" min="1" step="1"></label>
-    <label>Renewal day of month<input id="f_day" type="number" min="1" max="31"></label>
-    <label>Reserve (% kept untouched)<input id="f_res" type="number" min="0" max="50" step="1"></label>
-    <label>Phone hotspot Wi-Fi name<input id="f_ssid" placeholder="empty = count the whole interface"></label>
-    <label>Network interface<select id="f_iface"></select></label>
-    <label>Alert at (% of budget, comma separated)<input id="f_alerts"></label>
-    <label>Warn above (MB per minute, 0 = off)<input id="f_burst" type="number" min="0"></label>
-    <label class="chk"><input id="f_bin" type="checkbox"> My carrier counts 1 GB = 1024 MB</label>
-    <label class="chk"><input id="f_notify" type="checkbox"> Desktop notifications</label>
-  </div>
-  <div class="actions"><button class="pri" id="save">Save</button>
+<section class="card"><details class="set"><summary>Settings &amp; calibration</summary>
+  <div class="group"><h3>Plan</h3><p class="sub">Your data allowance and when it resets.</p>
+    <div class="form">
+      <label>Plan size (GB)<input id="f_plan" type="number" min="1" step="1"></label>
+      <label>Renewal day of month<input id="f_day" type="number" min="1" max="31"></label>
+      <label>Reserve (% kept untouched)<input id="f_res" type="number" min="0" max="50" step="1"></label>
+      <label class="chk"><input id="f_bin" type="checkbox"> My carrier counts 1 GB = 1024 MB</label>
+    </div></div>
+  <div class="group"><h3>Network</h3><p class="sub">Choose which traffic counts toward your plan.</p>
+    <div class="form">
+      <label>Phone hotspot Wi-Fi name<input id="f_ssid" placeholder="empty = count the whole interface"></label>
+      <label>Network interface<select id="f_iface"></select></label>
+    </div></div>
+  <div class="group"><h3>Alerts</h3><p class="sub">Get warned before the budget runs out.</p>
+    <div class="form">
+      <label>Alert at (% of budget, comma separated)<input id="f_alerts"></label>
+      <label>Warn above (MB per minute, 0 = off)<input id="f_burst" type="number" min="0"></label>
+      <label class="chk"><input id="f_notify" type="checkbox"> Desktop notifications</label>
+    </div></div>
+  <div class="actions"><button class="pri" id="save">Save changes</button>
     <button id="useSsid">Use the Wi-Fi I'm on now</button>
     <button id="test">Test notification</button><span id="msg"></span></div>
-  <div class="actions" style="margin-top:18px">
-    <label>Carrier says I've used (GB) this cycle<input id="f_cal" type="number" min="0" step="0.1"></label>
-    <button id="calBtn">Calibrate</button></div>
-  <p class="sub">The laptop only sees its own traffic; your carrier also counts your phone's. Calibrate every few days
-  (check your carrier's app) and the totals stay exact.</p>
+  <div class="group"><h3>Calibrate</h3>
+    <p class="sub">The laptop only sees its own traffic; your carrier also counts your phone's. Calibrate every few days
+    (check your carrier's app) and the totals stay exact.</p>
+    <div class="actions">
+      <label>Carrier says I've used (GB) this cycle<input id="f_cal" type="number" min="0" step="0.1"></label>
+      <button id="calBtn">Calibrate</button></div></div>
 </details></section>
 <footer>Everything stays on this computer. DataGuard makes no internet connections of its own.</footer>
 </main>
