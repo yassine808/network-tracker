@@ -2,11 +2,13 @@
 
 import argparse
 import json
+import logging
 import os
 import signal
 import sys
 import threading
 import webbrowser
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -20,6 +22,34 @@ from .usage import Store
 from .web import Handler, Server
 
 ENTRY_SCRIPT = Path(__file__).resolve().parents[1] / "dataguard.py"  # what startup must launch
+LOG_CAP = 3 * 1024 * 1024  # dataguard.log never grows past this
+
+
+class SmallLog(RotatingFileHandler):
+    """Rotates by truncating the same file: no .1 backup, total stays under maxBytes."""
+
+    def doRollover(self):
+        if self.stream:
+            self.stream.close()
+            self.stream = None
+        try:
+            open(self.baseFilename, "w").close()  # restart fresh instead of keeping a copy
+        except OSError:
+            pass
+        if not self.delay:
+            self.stream = self._open()
+
+
+def setup_logging(home):
+    """Everything worth keeping goes to dataguard.log in the home folder, plus the console."""
+    file_h = SmallLog(str(Path(home) / "dataguard.log"), maxBytes=LOG_CAP, backupCount=0, encoding="utf-8")
+    file_h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    con_h = logging.StreamHandler(sys.stdout)
+    con_h.setFormatter(logging.Formatter("[%(asctime)s] %(message)s", "%H:%M:%S"))
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.addHandler(file_h)
+    root.addHandler(con_h)
 
 
 def api(port, path, payload=None):
@@ -62,6 +92,7 @@ def cmd_run(args, home):
     for name in ("stdout", "stderr"):  # pythonw has no console streams
         if getattr(sys, name) is None:
             setattr(sys, name, open(os.devnull, "w"))
+    setup_logging(home)  # before Store(): migration warnings belong in the log too
     store = Store(home)
     port = args.port or store.cfg["port"]
     url = f"http://127.0.0.1:{port}"
@@ -84,7 +115,7 @@ def cmd_run(args, home):
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     except (ValueError, OSError):
         pass
-    print(f"DataGuard running. Dashboard: {url}   (Ctrl+C to stop)", flush=True)
+    logging.info("DataGuard running. Dashboard: %s   (Ctrl+C to stop)", url)
     from . import shell
     try:
         shell.run(url, open_now=args.open)

@@ -1,6 +1,7 @@
 """Live monitoring: sampling counters, the 15-minute ring, alerts and the dashboard status."""
 
 import collections
+import logging
 import threading
 import time
 from datetime import date, datetime, timedelta
@@ -9,6 +10,10 @@ from .common import psutil
 from .interfaces import auto_iface, get_ssid
 from .notify import notify
 from .processes import top_processes
+
+# A sample lasts 1-5 s: even 2.5 Gbps stays under 1.6 GB. Windows occasionally hands back a
+# counter that doubled - the jump looks like real traffic unless it is rejected here.
+COUNTER_JUMP = 2 * 2 ** 30
 
 
 class Monitor:
@@ -44,8 +49,17 @@ class Monitor:
         for nic, c in counters.items():
             cur = (c.bytes_recv, c.bytes_sent)
             prev = self.base.get(nic)
-            if prev is not None:  # a counter that went backwards was reset (adapter restart): count from zero
-                delta[nic] = tuple(a - b if a >= b else a for a, b in zip(cur, prev))
+            if prev is not None:
+                fwd = tuple(a - b for a, b in zip(cur, prev))
+                if min(fwd) >= 0:
+                    if max(fwd) <= COUNTER_JUMP:
+                        delta[nic] = fwd
+                    else:
+                        logging.warning("Implausible counter jump on %s ignored (prev=%s cur=%s)", nic, prev, cur)
+                elif max(cur) > COUNTER_JUMP:  # back near an old huge value: the twin of a doubled reading
+                    logging.warning("Implausible counter re-read on %s ignored (prev=%s cur=%s)", nic, prev, cur)
+                else:
+                    delta[nic] = cur  # a counter that went backwards was reset (adapter restart): count from zero
             self.base[nic] = cur
         t0, self.t_last = self.t_last, now
         if t0 is None or now <= t0 or self.iface not in delta:
@@ -97,11 +111,8 @@ class Monitor:
     # -- alerts
     def alert(self, kind, title, msg):
         st = self.store
-        with st.lock:
-            st.log.append({"t": datetime.now().isoformat(timespec="seconds"), "kind": kind, "title": title, "msg": msg})
-            st.log = st.log[-40:]
-            st.dirty = True
-        print(f"[{time.strftime('%H:%M:%S')}] {title} - {msg}", flush=True)
+        st.add_alert(kind, title, msg)
+        logging.info("%s - %s", title, msg)
         if st.cfg["notify"]:
             notify(title, msg)
 
