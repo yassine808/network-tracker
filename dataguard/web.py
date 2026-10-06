@@ -1,6 +1,7 @@
 """The local dashboard server: static page + JSON API on 127.0.0.1."""
 
 import json
+import logging
 import threading
 from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -84,6 +85,7 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionError):
             pass
         except Exception as e:
+            logging.exception("GET %s failed", self.path)
             self._json({"error": f"{type(e).__name__}: {e}"}, 500)
 
     def do_POST(self):
@@ -109,6 +111,10 @@ class Handler(BaseHTTPRequestHandler):
                 st.calibrate(gb_used)
             elif path == "/api/notify-test":
                 notify(APP, "Notifications are working.")
+            elif path == "/api/reset":
+                start = st.reset_cycle()
+                if self.tracker is not None:
+                    self.tracker.store.clear_since(start)
             else:
                 return self._json({"error": "not found"}, 404)
             self._json({"ok": True})
@@ -117,4 +123,5 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, TypeError) as e:
             self._json({"error": str(e)}, 400)
         except Exception as e:
+            logging.exception("POST %s failed", self.path)
             self._json({"error": f"{type(e).__name__}: {e}"}, 500)

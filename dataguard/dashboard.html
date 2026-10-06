@@ -134,6 +134,8 @@ button{font:inherit;font-size:14px;padding:8px 15px;border-radius:10px;border:1p
 button:hover{border-color:var(--acc)}button:disabled{opacity:.6;cursor:default}
 button.pri{background:var(--acc);color:var(--accink);border-color:transparent;font-weight:650}
 button.pri:hover{filter:brightness(1.08)}
+button.danger{border-color:var(--bad);color:var(--bad)}
+button.danger:hover{background:var(--bad);color:var(--accink);border-color:transparent}
 .actions{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
 #msg{font-size:13px;color:var(--mute)}
 input,select{font:inherit;padding:8px 11px;border-radius:9px;border:1px solid var(--line);background:var(--wash);color:var(--ink);min-width:0}
@@ -298,6 +300,9 @@ li.sub{border-left-color:var(--line)}
     <div class="actions">
       <label>Carrier says I've used (GB) this cycle<input id="f_cal" type="number" min="0" step="0.1"></label>
       <button id="calBtn">Calibrate</button></div></div>
+  <div class="group"><h3>Reset this month</h3>
+    <p class="sub">Zero this cycle's counters and per-app totals. Settings, past months and the alert list are kept.</p>
+    <div class="actions"><button id="resetBtn" class="danger">Reset this month</button></div></div>
 </section>
 </div>
 </div></main>
@@ -526,6 +531,10 @@ $("#calBtn").onclick = async () => {
   const v = parseFloat($("#f_cal").value);
   if (!(v >= 0)) return msg("Enter the GB your carrier reports.");
   try { await post("/api/calibrate", {gb: v}); msg("Calibrated."); tick(); } catch (e) { msg(e.message); }
+};
+$("#resetBtn").onclick = async () => {
+  if (!confirm("Zero this cycle's usage and per-app totals?\nSettings, past months and the alert list are kept.")) return;
+  try { await post("/api/reset", {}); msg("This cycle was reset."); tick(); } catch (e) { msg(e.message); }
 };
 
 /* frameless desktop window: show the built-in titlebar and wire its buttons */
