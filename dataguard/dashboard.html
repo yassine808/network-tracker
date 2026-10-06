@@ -33,7 +33,9 @@ body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--f);font-
 [data-p][hidden]{display:none}
 #net{margin-top:auto;padding:12px 6px 0;display:grid;gap:6px;font-size:11.5px;line-height:1.45;color:var(--mute)}
 #netName{font-size:13px;font-weight:650;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#netSys{font-variant-numeric:tabular-nums}
+#netSys{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font:600 12px var(--mono);color:var(--acc);font-variant-numeric:tabular-nums}
+#netSys .l{color:var(--mute);font-weight:500}
+#netSys b{text-align:right}
 .nav{display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;border-radius:10px;border:0;background:transparent;color:var(--mute);font:600 14px var(--f);text-align:left;cursor:pointer;transition:background .12s,color .12s}
 .nav svg{width:16px;height:16px;flex:none}
 .nav:hover{background:var(--track);color:var(--ink)}
@@ -62,6 +64,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--f);font-
 h2{margin:0 0 6px;font-size:14px;font-weight:650;letter-spacing:-.005em}
 h3{margin:0 0 2px;font-size:13px;font-weight:650}
 .sub{color:var(--mute);font-size:13.5px}
+.nowsec .sub{font-size:14.5px}
 
 /* hero: the dial + the number you care about */
 .hero{display:grid;grid-template-columns:auto minmax(260px,1fr) minmax(200px,250px);gap:12px 22px;align-items:center;padding:14px 18px}
@@ -230,7 +233,7 @@ input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
   <div id="net">
     <span id="netName"></span>
     <span id="netState" class="chip">Connecting&hellip;</span>
-    <span id="netSys"></span>
+    <div id="netSys"><span class="l">CPU</span><b id="cpuV">-</b><span class="l">RAM</span><b id="ramV">-</b></div>
   </div>
 </nav>
 <main id="pane"><div class="cwrap">
@@ -247,7 +250,6 @@ input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
     <div><span>Used this cycle</span><b id="used">-</b>
       <small class="planline"><label for="planGb">plan</label><input id="planGb" type="number" min="1" max="100000" step="1" inputmode="decimal" aria-label="Data plan size in gigabytes"><span>GB</span></small></div>
     <div><span>Days to renewal</span><b id="days">-</b><small id="renew"></small></div>
-    <div><span>Safe daily allowance</span><b id="allow">-</b><small>to last until renewal</small></div>
   </div>
 </section>
 <div class="card" id="killBox" hidden>
@@ -531,7 +533,6 @@ function render(s) {
   txt("#remn", s.reserve ? gb(s.reserve) + " reserve already in the ring" : "");
   txt("#days", String(s.days_left));
   txt("#renew", "renews " + dstr(s.cycle_end));
-  txt("#allow", gb(s.allowance));
 
   txt("#netName", s.ssid || s.iface || "?");
   const st = $("#netState");
@@ -539,14 +540,15 @@ function render(s) {
   else if (s.counting === null) { st.className = "chip"; st.textContent = "Starting\u2026"; }
   else if (s.counting) { st.className = "chip ok"; st.textContent = "Counting"; }
   else { st.className = "chip"; st.textContent = "Not counted"; }
-  txt("#netSys", "CPU " + Math.round(s.cpu || 0) + "% \u00b7 RAM " + Math.round(s.mem || 0) + "%");
+  txt("#cpuV", (s.app_cpu || 0).toFixed(1) + "%");
+  txt("#ramV", s.ram_mb >= 1024 ? (s.ram_mb / 1024).toFixed(1) + " GB" : Math.round(s.ram_mb || 0) + " MB");
 
   txt("#today", sz(s.today));
   const r = s.allowance > 0 ? s.today / s.allowance : (s.today > 0 ? 2 : 0);
   const tb = $("#tbar"); tb.style.width = Math.min(100, r * 100) + "%"; tb.style.background = tone(r * 100);
-  txt("#tnote", s.allowance <= 0 ? "No allowance left this cycle"
-    : s.today <= s.allowance ? sz(s.allowance - s.today) + " left of today's " + gb(s.allowance)
-    : "Over today's " + gb(s.allowance) + " allowance by " + sz(s.today - s.allowance));
+  txt("#tnote", s.allowance <= 0 ? "No daily quota left this cycle"
+    : s.today <= s.allowance ? sz(s.allowance - s.today) + " left of today's " + gb(s.allowance) + " quota"
+    : "Over today's " + gb(s.allowance) + " quota by " + sz(s.today - s.allowance));
 
   const tag = $("#ptag"), note = $("#pnote");
   if (s.pct >= 100) { tag.className = "tag bad"; tag.textContent = "Over plan"; note.textContent = sz(s.used) + " used of your " + gb(s.plan) + " plan, " + s.days_left + " days to go. Keep to essentials."; }
