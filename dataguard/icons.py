@@ -1,34 +1,65 @@
-"""Program icons as small PNGs (optional: needs Pillow; any failure just means no icon)."""
+"""Program icons as small PNGs. Pillow is optional: without it, or when extraction fails,
+png() logs why and returns None so the server can answer with a generic glyph instead of a hole."""
 
+import base64
 import ctypes
 import io
 import logging
 import sys
 import threading
+import time
 
-try:
-    from PIL import Image
-except ImportError:
-    Image = None
-
-_cache = {}
+_cache = {}      # path -> [png bytes or None, when it was tried]
 _lock = threading.Lock()
+FAIL_TTL = 60.0  # seconds a failed path is cached (never latch "no icon" for good)
+
+# 64x64 neutral tile with a window glyph, rendered once and embedded so the fallback
+# needs no Pillow at request time.
+GENERIC = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABZUlEQVR4nO3bMU7DMBjF8ee/MiIhLsKKxA04AEt7hq"
+    "49BCtiY6VLD8ANkFi5EAikSFZqksYJiuPHT2qluv4cP9tVsyRohIfHl0+twH63Def2DbWEzl0Mag5/ToaQU1TTacAl"
+    "/G/ZGOpQm25GZA6n3U9lpdvgos2MzCFzwfH4x5A5ZA6ZQ+aa3MLN/Z1Kcji+ZtUhc/zFTvTtxtv7x8+rygU4RMFTixA"
+    "HL2URmGugVOC4LRW4hEVA5phroNS/Qtx2e3N98n2qbdUnYBMFTi1IHLiE8JPuA3LvD0oJ3kLmmtzCq8sL1QCZQ+aQO"
+    "WQOmUPmkDlkDplD5pA5ZA6ZQ+aQOWQOmUPmyC18ej6qFFPmwlIXnsvUObD0BJa+dlPKRJaCzCFzyBwyx5gHjGqz323D"
+    "/wmQOb7fHH8GbWa6DQ7irMgc8QeHU9DNyFCHmqSyhb6CWp4m6dtUcgvXYihDGDPYWk7EmI37AhBHdFslgcpPAAAAAElF"
+    "TkSuQmCC"
+)
+
+
+def _image_cls():
+    """PIL's Image, imported per call: a missing or broken Pillow install gets retried
+    instead of being latched forever."""
+    try:
+        from PIL import Image
+        return Image
+    except Exception as e:
+        logging.debug("icon: Pillow unavailable: %s", e)
+        return None
 
 
 def png(path):
-    """PNG bytes for an .exe, or None. Cached (failures too, so a dead path is only tried once)."""
-    if not path or Image is None or not sys.platform.startswith("win"):
+    """PNG bytes for an .exe, or None (logged, briefly cached) so callers can fall back."""
+    if not path or not sys.platform.startswith("win"):
         return None
+    now = time.time()
     with _lock:
-        if path in _cache:
-            return _cache[path]
-    data = _extract(path)
+        hit = _cache.get(path)
+        if hit and (hit[0] is not None or now - hit[1] < FAIL_TTL):
+            return hit[0]
+    Image = _image_cls()
+    if Image is None:
+        data, why = None, "Pillow is not installed"
+    else:
+        data, why = _extract(path, Image)
+    if data is None:
+        logging.warning("icon: no icon for %s: %s (retry in %ds)", path, why, int(FAIL_TTL))
     with _lock:
-        _cache[path] = data
+        _cache[path] = [data, time.time()]
     return data
 
 
-def _extract(path):
+def _extract(path, Image):
+    """(PNG bytes, "") or (None, why it failed)."""
     from ctypes import wintypes
 
     class SHFI(ctypes.Structure):
@@ -81,18 +112,18 @@ def _extract(path):
     try:
         if not s32.SHGetFileInfoW(path, 0, ctypes.byref(fi), ctypes.sizeof(fi),
                                   SHGFI_ICON | SHGFI_LARGEICON) or not fi.hIcon:
-            return None
+            return None, "the shell could not read that file"
         ii = ICONINFO()
         if not u32.GetIconInfo(fi.hIcon, ctypes.byref(ii)):
-            return None
+            return None, "the icon had no bitmap"
         try:
             if not ii.hbmColor:
-                return None  # 1-bit icon (mask only): rare, give up quietly
+                return None, "monochrome icon"  # 1-bit icon (mask only): rare, give up quietly
             bm = BITMAP()
             g32.GetObjectW(ii.hbmColor, ctypes.sizeof(bm), ctypes.byref(bm))
             w, h = int(bm.bmWidth), abs(int(bm.bmHeight))
             if not 0 < w <= 512 or not 0 < h <= 512:
-                return None
+                return None, f"odd icon size {w}x{h}"
             bi = BMIH()
             bi.biSize, bi.biWidth, bi.biHeight = ctypes.sizeof(BMIH), w, -h  # top-down
             bi.biPlanes, bi.biBitCount, bi.biCompression = 1, 32, 0
@@ -100,7 +131,7 @@ def _extract(path):
             hdc = u32.GetDC(None)
             try:
                 if g32.GetDIBits(hdc, ii.hbmColor, 0, h, buf, ctypes.byref(bi), 0) <= 0:
-                    return None
+                    return None, "the icon's bitmap could not be read"
             finally:
                 u32.ReleaseDC(None, hdc)
             img = Image.frombytes("RGBA", (w, h), bytes(buf), "raw", "BGRA", 0, 1)
@@ -108,15 +139,14 @@ def _extract(path):
                 img.putalpha(255)
             out = io.BytesIO()
             img.save(out, "PNG")
-            return out.getvalue()
+            return out.getvalue(), ""
         finally:
             if ii.hbmColor:
                 g32.DeleteObject(ii.hbmColor)
             if ii.hbmMask:
                 g32.DeleteObject(ii.hbmMask)
     except Exception as e:
-        logging.debug("icon for %s failed: %s", path, e)
-        return None
+        return None, f"{type(e).__name__}: {e}"
     finally:
         if fi.hIcon:
             u32.DestroyIcon(fi.hIcon)

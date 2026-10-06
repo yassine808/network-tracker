@@ -1,7 +1,6 @@
-"""Fast checks that must pass before any release: pricing math, update packaging safety,
-strict-SSID gating and dashboard syntax. Run: python tests/smoke.py (exit 0 = all good)."""
+"""Fast checks that must pass before any release: pricing math, strict-SSID gating and
+dashboard syntax. Run: python tests/smoke.py (exit 0 = all good)."""
 
-import io
 import json
 import re
 import shutil
@@ -9,7 +8,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import zipfile
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,7 +15,7 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from dataguard import __version__, update
+from dataguard import __version__
 from dataguard import live as live_mod
 from dataguard.live import Monitor
 from dataguard.settings import DEFAULTS, clean_cfg, cycle_bounds
@@ -37,12 +35,14 @@ def test_imports():
     import importlib
 
     for mod in ("dataguard.settings", "dataguard.usage", "dataguard.live",
-                "dataguard.update", "dataguard.web", "dataguard.cli"):
+                "dataguard.web", "dataguard.cli"):
         try:
             importlib.import_module(mod)
             check(True, "import " + mod)
         except Exception as e:
             check(False, "import " + mod, f"{type(e).__name__}: {e}")
+    check(bool(re.match(r"^\d+\.\d+\.\d+$", __version__)), "package: a release version is set",
+          __version__)
 
 
 def test_settings():
@@ -80,68 +80,6 @@ def test_summary(tmp):
               str(s["remaining"]))
     finally:
         st.conn.close()
-
-
-def test_update_versions():
-    """Version tuples compare numerically and the status flag only flips on something newer."""
-    check(update.ver("v1.10.0") > update.ver("v1.9.0"), "update: 1.10.0 beats 1.9.0")
-    check(update.ver("v9.9.9") > update.ver("1.0.0"), "update: v9.9.9 beats 1.0.0")
-    check(update.ver(None) < update.ver("1.0.0"), "update: a missing tag never wins")
-    check(bool(re.match(r"^\d+\.\d+\.\d+$", __version__)), "package: a release version is set",
-          __version__)
-    saved = update._state["latest"]
-    try:
-        update._state["latest"] = "v99.0.0"
-        check(update.status()["available"] is True, "update: a newer release is offered")
-        update._state["latest"] = "v0.0.1"
-        check(update.status()["available"] is False, "update: an older release stays quiet")
-        update._state["latest"] = None
-        check(update.status()["available"] is False, "update: no releases = nothing to offer")
-    finally:
-        update._state["latest"] = saved
-
-
-def test_unpack(tmp):
-    """A release zip is unpacked safely: one wrapping folder peeled, escape attempts refused."""
-    def zipped(entries):
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w") as zf:
-            for name, data in entries.items():
-                zf.writestr(name, data)
-        return zipfile.ZipFile(io.BytesIO(buf.getvalue()))
-
-    case = 0
-
-    def dest():
-        nonlocal case
-        case += 1
-        d = Path(tmp) / f"case{case}"
-        d.mkdir(parents=True)
-        return d
-
-    d = dest()
-    update.unpack(zipped({"pkg/a.txt": "A", "pkg/b.txt": "B"}), d)
-    check((d / "a.txt").read_text() == "A" and (d / "b.txt").read_text() == "B",
-          "unpack: one wrapping folder is peeled off")
-
-    d = dest()
-    update.unpack(zipped({"dataguard/x.py": "X", "dataguard.py": "Y"}), d)
-    check((d / "dataguard" / "x.py").read_text() == "X" and (d / "dataguard.py").read_text() == "Y",
-          "unpack: the real release layout lands at the root")
-
-    for entries, name in [
-        ({"pkg/a.txt": "A", "../../evil.txt": "boom"}, "unpack: .. paths refused"),
-        ({"/etc/evil.txt": "boom"}, "unpack: absolute paths refused"),
-        ({}, "unpack: an empty release refused"),
-    ]:
-        d = dest()
-        try:
-            update.unpack(zipped(entries), d)
-            check(False, name, "no error raised")
-        except ValueError:
-            check(True, name)
-        except Exception as e:
-            check(False, name, f"{type(e).__name__}: {e}")
 
 
 def test_monitor(tmp):
@@ -252,9 +190,6 @@ def main():
         test_settings()
         print("usage summary")
         test_summary(tmp / "home")
-        print("updater")
-        test_update_versions()
-        test_unpack(tmp / "zip")
         print("monitor")
         test_monitor(tmp / "mon")
         print("cli calibrate")

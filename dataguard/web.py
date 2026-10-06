@@ -13,7 +13,7 @@ from .interfaces import get_ssid
 from .notify import notify
 from .processes import top_processes
 from .settings import cycle_bounds
-from . import update
+from . import __version__
 
 TOP_LOCK = threading.Lock()
 
@@ -61,7 +61,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(data)
             elif path == "/api/status":
                 s = self.mon.status()
-                s["update"] = update.status()
+                s["version"] = __version__
                 self._json(s)
             elif path == "/api/top":
                 if not TOP_LOCK.acquire(blocking=False):
@@ -82,11 +82,14 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/app_icon":
                 if self.tracker is None:
                     return self._json({"error": "tracker not running"}, 404)
-                from . import icons  # Pillow may be missing: png() then just says "no icon"
+                from . import icons  # Pillow may be missing: then, or on any failure, a generic glyph
                 name = parse_qs(urlparse(self.path).query).get("name", [""])[0]
-                data = icons.png(self.tracker.exe(name))
+                exe = self.tracker.exe(name)
+                data = icons.png(exe)
                 if not data:
-                    return self._json({"error": "no icon"}, 404)
+                    if not exe:
+                        logging.info("icon: no file known for %s, serving the generic icon", name)
+                    data = icons.GENERIC
                 self.send_response(200)
                 self.send_header("Content-Type", "image/png")
                 self.send_header("Content-Length", str(len(data)))
@@ -136,16 +139,16 @@ class Handler(BaseHTTPRequestHandler):
                 if not name:
                     raise ValueError("no app given")
                 if body.get("on"):
-                    exe = self.tracker.exe(name)
+                    exe = self.tracker.exe(name)  # recorded, live, or guessed: never a blind "" (see apps.exe)
                     ok, err = firewall.block_app(name, exe)
                     if not ok:
                         raise ValueError(err)
-                    self.tracker.blocked.add(name)
+                    self.tracker.set_blocked(name, True)
                 else:
                     ok, err = firewall.unblock_app(name)
                     if not ok:
                         raise ValueError(err)
-                    self.tracker.blocked.discard(name)
+                    self.tracker.set_blocked(name, False)
             elif path == "/api/kill":
                 if body.get("skip"):  # the "about to be cut" warning was ignored: hands off until tomorrow
                     self.mon.skip_kill_today()
@@ -153,15 +156,6 @@ class Handler(BaseHTTPRequestHandler):
                     ok, err = self.mon.kill_now(bool(body.get("on")))
                     if not ok:
                         raise ValueError(err)
-            elif path == "/api/update":
-                if body.get("action") != "install":
-                    raise ValueError("action must be 'install'")
-                ok, why = update.install()
-                if not ok:
-                    raise ValueError(why)
-                self._json({"ok": True, "restarting": True})
-                threading.Timer(1.0, update.restart).start()  # let this reply reach the browser first
-                return
             else:
                 return self._json({"error": "not found"}, 404)
             self._json({"ok": True})

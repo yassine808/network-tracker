@@ -1,6 +1,8 @@
 """Per-app usage history: a background sampler that records each program's bytes into SQLite."""
 
+import json
 import logging
+import os
 import sqlite3
 import threading
 import time
@@ -11,6 +13,38 @@ from .common import DB_NAME, IS_WIN, psutil
 from .processes import io_proxy
 
 KEEP_DAYS = 400
+
+
+def _guess_path(name):
+    """Exact filename match in the folders apps usually live in, plus the App Paths registry.
+    The last resort when no process will reveal its path (protected/elevated programs):
+    only exact matches count, so a wrong file is never picked."""
+    if not name or not IS_WIN:
+        return ""
+    win = os.environ.get("SystemRoot") or r"C:\Windows"
+    dirs = [os.path.join(win, "System32"), os.path.join(win, "SysWOW64"),
+            os.environ.get("ProgramFiles", ""), os.environ.get("ProgramFiles(x86)", ""),
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs"),
+            os.environ.get("APPDATA", ""), os.environ.get("PROGRAMDATA", "")]
+    for d in dirs:
+        cand = os.path.join(d, name)
+        if d and os.path.isfile(cand):
+            return cand
+    try:
+        import winreg
+        for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+            try:
+                with winreg.OpenKey(
+                        hive, r"Software\Microsoft\Windows\CurrentVersion\App Paths\\" + name) as k:
+                    v, _ = winreg.QueryValueEx(k, "")
+            except OSError:
+                continue
+            v = (v or "").strip('"')
+            if v and os.path.isfile(v):
+                return v
+    except (OSError, ImportError):
+        pass
+    return ""
 
 
 def _iso(day):
@@ -133,17 +167,78 @@ class AppTracker(threading.Thread):
         self.err = ""
         self.base = {}      # pid -> (name, other_bytes) at the previous tick
         self.paths = {}     # app name -> its .exe, for the Apps page (icon + block button)
-        self.blocked = set()  # apps the user switched to "block internet" this session
+        self.blocked_file = Path(store.path).parent / "blocked.json"
+        self.blocked = self._load_blocked()  # apps switched to "block internet", kept across restarts
         self.t_flush = time.time()
         self.stop_event = threading.Event()
 
     def exe(self, name):
-        """Last known file path for an app, or "" when it never showed one."""
-        return self.paths.get(name) or ""
+        """File path for an app: the recorded one when it still exists, else looked up live
+        (a protected or elevated process hides its path from the sampler), else guessed from
+        the folders apps usually live in. "" only when nothing could find the file."""
+        p = self.paths.get(name) or ""
+        if p and os.path.isfile(p):
+            return p
+        p = self._find_live(name) or _guess_path(name)
+        if p:
+            self.paths[name] = p
+        return p
+
+    def _find_live(self, name):
+        """Ask psutil again right now: the sampler may have missed a path that reads fine later."""
+        if not IS_WIN:
+            return ""
+        try:
+            for proc in psutil.process_iter(["name", "exe"]):
+                if (proc.info.get("name") or "").lower() == name.lower() and proc.info.get("exe"):
+                    return proc.info["exe"]
+        except (psutil.Error, OSError):
+            pass
+        return ""
+
+    def _load_blocked(self):
+        try:
+            data = json.loads(self.blocked_file.read_text(encoding="utf-8"))
+            return {n for n in data if isinstance(n, str)} if isinstance(data, list) else set()
+        except (OSError, ValueError):
+            return set()
+
+    def set_blocked(self, name, on):
+        """Remember the user's choice on disk (the rules themselves live in Windows)."""
+        if on:
+            self.blocked.add(name)
+        else:
+            self.blocked.discard(name)
+        try:
+            tmp = self.blocked_file.with_suffix(".tmp")
+            tmp.write_text(json.dumps(sorted(self.blocked)), encoding="utf-8")
+            tmp.replace(self.blocked_file)
+        except OSError as e:
+            logging.warning("apps: could not save the blocked list: %s", e)
+
+    def _reapply_blocks(self):
+        """Make sure every remembered block still exists in the firewall. Rules normally
+        survive reboots (read-only check, no prompt); a missing or stale one - an app
+        update moved the file, or the firewall was reset - is rebuilt."""
+        if not IS_WIN or not self.blocked:
+            return
+        from . import firewall
+        for name in sorted(self.blocked):
+            exe = self.exe(name)
+            try:
+                ok, err = firewall.ensure_block(name, exe)
+            except Exception as e:
+                ok, err = False, f"{type(e).__name__}: {e}"
+            logging.info("firewall: re-applied block for %s: %s",
+                         name, "ok" if ok else f"failed ({err})")
 
     def run(self):
         if not self.supported:
             return
+        try:
+            self._reapply_blocks()
+        except Exception as e:  # never let firewall upkeep stop the tracker
+            logging.warning("apps: re-applying blocks failed: %s", e)
         while not self.stop_event.is_set():
             try:
                 self.tick()

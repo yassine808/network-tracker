@@ -64,13 +64,13 @@ h3{margin:0 0 2px;font-size:13px;font-weight:650}
 .sub{color:var(--mute);font-size:13.5px}
 
 /* hero: the dial + the number you care about */
-.hero{display:grid;grid-template-columns:auto 1fr;gap:10px 24px;align-items:center;padding:14px 18px}
-#ring{width:130px;height:130px}
+.hero{display:grid;grid-template-columns:auto minmax(260px,1fr) minmax(200px,250px);gap:12px 22px;align-items:center;padding:14px 18px}
+#ring{width:184px;height:184px}
 .trk,.arc{fill:none;stroke-width:12}
 .trk{stroke:var(--track);stroke-dasharray:1.5 3.95}
 .arc{stroke:var(--ok);stroke-linecap:butt;stroke-dasharray:0 400;transition:stroke-dasharray .7s cubic-bezier(.22,1,.36,1),stroke .3s,filter .4s}
 .arc.hot{filter:drop-shadow(0 0 7px currentColor)}
-.big{font:300 27px var(--fd);fill:var(--ink);letter-spacing:-.02em}
+.big{font:300 34px var(--fd);fill:var(--ink);letter-spacing:-.02em}
 .lead span{font-size:14px;color:var(--mute)}
 .lead .remrow{display:flex;align-items:baseline;gap:7px;margin:2px 0 4px}
 .lead #rem{font:300 clamp(40px,6vw,56px)/1.02 var(--fd);letter-spacing:-.035em;width:4.4ch;min-width:3.4ch;padding:0 7px;border:1px solid transparent;border-radius:14px;background:transparent;color:var(--ink);font-variant-numeric:tabular-nums;-moz-appearance:textfield}
@@ -79,16 +79,16 @@ h3{margin:0 0 2px;font-size:13px;font-weight:650}
 .lead #rem:focus{border-color:var(--acc)}
 .lead #remu{font:300 clamp(16px,2.5vw,22px)/1 var(--fd);color:var(--mute);font-style:normal}
 .lead small{display:block;color:var(--mute);font-size:13.5px;min-height:1.4em}
-.facts{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin:4px -4px 0;border-top:1px solid var(--line);padding-top:12px}
-.facts>div{padding:0 18px 0 4px}
-.facts>div+div{padding-left:18px;border-left:1px solid var(--line)}
+.facts{display:grid;gap:9px;align-content:center}
+.facts>div{padding:0}
+.facts>div+div{padding-top:9px;border-top:1px solid var(--line)}
 .facts span{display:block;font-size:13px;color:var(--mute)}
 .facts b{display:block;font-size:18px;font-weight:600;letter-spacing:-.02em;margin:1px 0}
 .facts small{display:block;color:var(--mute);font-size:12px}
 .facts small.planline{display:flex;align-items:center;gap:5px}
 .facts small.planline input{width:4.6em;padding:2px 6px;border-radius:7px;border:1px solid var(--line);background:var(--wash);color:var(--ink);font-size:12.5px;font-weight:600;text-align:right;min-width:0}
 .facts small.planline input:hover{border-color:var(--acc)}
-@media(max-width:700px){.hero{grid-template-columns:1fr;justify-items:center;text-align:center;padding:22px 18px}.facts{margin:6px 0 0}.facts>div,.facts>div+div{padding:10px 0;border-left:0;text-align:left}}
+@media(max-width:700px){.hero{grid-template-columns:1fr;justify-items:center;text-align:center;padding:22px 18px}.facts{margin:6px 0 0}.facts>div,.facts>div+div{padding:10px 0;text-align:left}}
 
 /* kill-switch banner (in-page reminder once the connection is actually cut) */
 #killBox{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:9px 14px;animation:bannerIn .45s cubic-bezier(.22,1,.36,1);border-color:color-mix(in srgb,var(--warn) 55%,var(--line));background:color-mix(in srgb,var(--warn) 8%,var(--card))}
@@ -108,14 +108,17 @@ h3{margin:0 0 2px;font-size:13px;font-weight:650}
 #veil .vbtns{display:flex;gap:10px;justify-content:center;margin-top:24px;flex-wrap:wrap}
 @keyframes vIn{from{opacity:0;transform:translateY(18px)}}
 
-/* today / pace / live strip */
+/* today + right-now row, then the history + pace row */
 .strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));padding:0}
+.strip.lower{grid-template-columns:1.5fr 1fr}
 .strip>section{padding:12px 14px}
 .strip>section+section{border-left:1px solid var(--line)}
-@media(max-width:820px){.strip>section+section{border-left:0;border-top:1px solid var(--line)}}
-.num{font:300 28px/1.1 var(--fd);letter-spacing:-.03em}
+@media(max-width:820px){.strip,.strip.lower{grid-template-columns:1fr}.strip>section+section{border-left:0;border-top:1px solid var(--line)}}
+.num{font:300 60px/1.05 var(--fd);letter-spacing:-.035em}
 .meter{height:8px;background:var(--track);border-radius:99px;overflow:hidden;margin:8px 0 6px}
 .meter i{display:block;height:100%;width:0;background:var(--ok);border-radius:99px;transition:width .6s cubic-bezier(.22,1,.36,1),background .3s}
+.meter.xl{height:38px;border-radius:13px;margin:14px 0 10px}
+.meter.xl i{border-radius:13px}
 .tag{display:inline-block;font-size:13px;font-weight:650;padding:3px 11px;border-radius:99px;background:color-mix(in srgb,currentColor 12%,transparent)}
 .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
 svg text{font-family:inherit}
@@ -237,7 +240,7 @@ input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
   <svg id="ring" viewBox="0 0 120 120" role="img" aria-label="Share of the data plan used">
     <circle class="trk" cx="60" cy="60" r="52"/>
     <circle id="arc" class="arc" cx="60" cy="60" r="52" transform="rotate(-90 60 60)"/>
-    <text id="pct" class="big" x="60" y="69" text-anchor="middle">-</text>
+    <text id="pct" class="big" x="60" y="60" text-anchor="middle" dominant-baseline="central">-</text>
   </svg>
   <div class="lead"><span id="remk">Left this cycle</span><div class="remrow"><input id="rem" type="number" step="0.01" inputmode="decimal" aria-label="Gigabytes left this cycle, negative if over plan"><i id="remu">GB</i></div><small id="remn"></small></div>
   <div class="facts">
@@ -254,13 +257,10 @@ input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
 </div>
 
 <div class="card strip">
-  <section><h2>Today</h2>
+  <section class="nowsec"><h2>Today</h2>
     <div class="num" id="today">-</div>
-    <div class="meter"><i id="tbar"></i></div>
+    <div class="meter xl"><i id="tbar"></i></div>
     <div class="sub" id="tnote"></div></section>
-  <section><h2>Pace</h2>
-    <span class="tag" id="ptag">-</span>
-    <p class="sub" id="pnote" style="margin:12px 0 0"></p></section>
   <section class="live"><h2>Right now</h2>
     <div class="lg"><span><i style="background:var(--s1)"></i>Down</span><span><i style="background:var(--s2)"></i>Up</span></div>
     <svg id="area" viewBox="0 0 300 96" preserveAspectRatio="none" role="img" aria-label="Download and upload speed over the last minutes">
@@ -288,7 +288,12 @@ input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
     <div class="sub" id="nc" style="margin-top:6px"></div></section>
 </div>
 
-<section class="card"><h2>Last 30 days</h2><svg id="bars" viewBox="0 0 800 100"></svg></section>
+<div class="card strip lower">
+  <section><h2>Last 30 days</h2><svg id="bars" viewBox="0 0 520 100"></svg></section>
+  <section><h2>Pace</h2>
+    <span class="tag" id="ptag">-</span>
+    <p class="sub" id="pnote" style="margin:12px 0 0"></p></section>
+</div>
 </div><!-- /main panel -->
 
 <div data-p="apps" hidden>
@@ -337,8 +342,7 @@ input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
     <p class="sub">Zero this cycle's counters and per-app totals. Settings and past months are kept.</p>
     <div class="actions"><button id="resetBtn" class="danger">Reset this month</button></div></div>
   <div class="group"><h3>About</h3>
-    <p class="sub">DataGuard <b id="verNum">v?</b> <span id="verNote"></span></p>
-    <div class="actions"><button id="updBtn" class="pri" hidden>Install update</button></div></div>
+    <p class="sub">DataGuard <b id="verNum">v?</b></p>
 </section>
 </div>
 </div></main>
@@ -466,7 +470,7 @@ function bars(hist, allow) {
   const first = !barsGrown;
   if (first) { barsGrown = true; el.classList.add("grow");
     setTimeout(() => el.classList.remove("grow"), 500 + hist.length * 14 + 700); }
-  const W = 800, H = 100, pad = 14, n = hist.length, y0 = H - pad, bw = W / n;
+  const W = 520, H = 100, pad = 14, n = hist.length, y0 = H - pad, bw = W / n;
   const top = Math.max(allow || 0, ...hist.map(h => h.b), 1) * 1.12;
   hist.forEach((h, i) => {
     const bh = h.b / top * (y0 - 4);
@@ -574,15 +578,8 @@ function render(s) {
     $("#killBtn").textContent = "Restore internet";
   }
 
-  /* about: the version we run, and an install button while a newer one is waiting */
-  const up = s.update || {};
-  txt("#verNum", "v" + (up.version || "?"));
-  const upNote = up.err ? "Couldn't check for updates (" + up.err + ")."
-    : !up.checked ? "Checking for updates\u2026"
-    : up.available ? "Version " + up.latest + " is ready to install." : "You're on the latest version.";
-  txt("#verNote", upNote ? " \u00b7 " + upNote : "");
-  $("#updBtn").hidden = !up.available || up.busy || !!window.__updating;
-  window.__curVer = up.version || "?";   // so a restart that beats the next poll is still noticed
+  /* about: the version we run */
+  txt("#verNum", "v" + (s.version || "?"));
 
   /* one veil for every warning: cut > plan used up > a bad day, highest tier wins */
   const cutIg = localStorage.getItem("dg_ig_cut") === dk, yelIg = localStorage.getItem("dg_ig_yellow") === dk;
@@ -678,7 +675,8 @@ function buildAppRow(r, days, share) {
   nm.append(mk("span", "car", "\u25b8"));
   const ic = mk("img", "aic"); ic.alt = ""; ic.loading = "lazy";
   ic.src = "/api/app_icon?name=" + encodeURIComponent(r.app);
-  ic.onerror = () => ic.remove();
+  // never drop the icon: a failed load degrades to the neutral tile the CSS already draws
+  ic.onerror = () => { ic.onerror = null; ic.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"; };
   nm.append(ic, document.createTextNode(r.app));
   const m = mk("div", "meter"); m.appendChild(mk("i"));
   s.append(nm, m, mk("span", "v1"), mk("span", "v2"));
@@ -697,17 +695,14 @@ function syncAppRow(d, r, days, share) {
   s.querySelector(".v2").textContent = sz(r.cycle);
   s.querySelector(".meter i").style.width = Math.max(2, r.cycle / share * 100) + "%";
 
-  const active = Object.values(r.days).filter(b => b > 0).length;
-  const show = r.blocked || r.d30 / (active || 1) >= U.gb;
+  /* every recorded app offers the block button - always, not only for heavy users */
   let b = s.querySelector("button.blk");
-  if (show) {
-    if (!b) { b = mk("button", "blk"); b.type = "button"; s.appendChild(b); }
-    b.className = "blk" + (r.blocked ? " on" : "");
-    b.textContent = r.blocked ? "Unblock" : "Block internet";
-    b.title = (r.blocked ? "Allow " : "Block ") + r.app + " to use the internet";
-    b.disabled = blockBusy;
-    b.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); toggleBlock(b, r.app, !r.blocked); };
-  } else if (b) b.remove();
+  if (!b) { b = mk("button", "blk"); b.type = "button"; s.appendChild(b); }
+  b.className = "blk" + (r.blocked ? " on" : "");
+  b.textContent = r.blocked ? "Unblock" : "Block internet";
+  b.title = (r.blocked ? "Allow " : "Block ") + r.app + " to use the internet";
+  b.disabled = blockBusy;
+  b.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); toggleBlock(b, r.app, !r.blocked); };
 
   const barsBox = d.querySelector(".days"), top = Math.max(...Object.values(r.days), 1);
   while (barsBox.children.length > days.length) barsBox.lastChild.remove();
@@ -840,18 +835,6 @@ $("#resetBtn").onclick = async () => {
   if (!confirm("Zero this cycle's usage and per-app totals?\nSettings and past months are kept.")) return;
   try { await post("/api/reset", {}); msg("This cycle was reset."); tick(); } catch (e) { msg(e.message); }
 };
-$("#updBtn").onclick = async () => {
-  $("#updBtn").disabled = true;
-  try {
-    window.__updFrom = window.__curVer;
-    await post("/api/update", {action: "install"});
-    window.__updating = 1;   // from here on: the server will go down, then come back newer
-    toast("Update installed. DataGuard is restarting\u2026");
-  } catch (e) {
-    $("#updBtn").disabled = false;
-    toast("Couldn't install: " + e.message, "err");
-  }
-};
 
 let killActive = false;
 $("#killBtn").onclick = async () => {
@@ -907,10 +890,7 @@ async function tick() {
   try {
     const st = await (await fetch("/api/status", {cache: "no-store"})).json();
     render(st);
-    const back = (st.update || {}).version !== window.__updFrom;  // the new build is answering now
-    if (window.__updating === 2 || (window.__updating === 1 && back)) { location.reload(); return; }
   } catch (e) {
-    if (window.__updating === 1) window.__updating = 2;           // it went down: the restart is real
     const c = $("#netState"); c.className = "chip warn"; c.textContent = "Can't reach DataGuard"; console.error(e);
   }
   try { renderApps(await (await fetch("/api/apps", {cache: "no-store"})).json()); }

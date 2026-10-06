@@ -5,4 +5,4 @@
 - [x] auto-updater searches in github releases then updates to last version (only once to save internet) , it should check and show if it's the last version in the app
 - [x] add Ci github
 - [x] add setup.exe that auto starts when pc turns on.
-- [] remove feature that auto checks update, the app shouldn't use internet at all, even it's python.exe
+- [x] remove feature that auto checks update, the app shouldn't use internet at all, even it's python.exe (updater deleted; only call left is localhost. The installed app also gets firewall rules that block its own python*.exe from the internet, loopback kept for the dashboard)

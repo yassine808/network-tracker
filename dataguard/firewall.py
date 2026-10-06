@@ -15,6 +15,8 @@ from .common import NO_WINDOW
 CUT_RULE = "DataGuard-Internet-Cutoff"
 ALLOW_RULE = "DataGuard-Allow-Local"
 BLOCK_PREFIX = "DataGuard-Block-"
+SEAL_RULE = "DataGuard-Self-Block-"
+SEAL_ALLOW = "DataGuard-Self-Allow-"
 
 # Blocking these would break Windows itself (DNS, logon, update...) - refuse politely.
 SYSTEM = {"svchost.exe", "lsass.exe", "services.exe", "wininit.exe", "csrss.exe", "smss.exe",
@@ -116,6 +118,27 @@ def _rule_name(name):
     return BLOCK_PREFIX + "".join(c if c.isalnum() or c in ".-_" else "_" for c in name)[:80]
 
 
+def _rule_program(rule):
+    """(exists, program path) for a named rule. Read-only, works without admin. The path
+    comes from the "Program:" line; on a non-English Windows that label won't match and
+    the path reads as "" (meaning: it exists, but whether it is stale stays unknown)."""
+    if not sys.platform.startswith("win"):
+        return False, ""
+    try:
+        r = subprocess.run(["netsh", "advfirewall", "firewall", "show", "rule", "name=" + rule],
+                           capture_output=True, text=True, errors="replace",
+                           timeout=6, creationflags=NO_WINDOW)
+    except (OSError, subprocess.SubprocessError):
+        return False, ""
+    if r.returncode != 0:  # 1 = "No rules match" (in any language)
+        return False, ""
+    m = re.search(r"(?i)program:\s*(.+)", r.stdout or "")
+    program = (m.group(1).strip() if m else "")
+    if program.lower() == "any":
+        program = ""
+    return True, program
+
+
 def block_app(name, exe):
     """Stop one program from reaching the internet. (ok, message)."""
     if not exe:
@@ -123,10 +146,28 @@ def block_app(name, exe):
     if name.lower() in SYSTEM or exe.replace("\\", "/").rsplit("/", 1)[-1].lower() in SYSTEM:
         return False, "that is a Windows system service - blocking it could break the PC"
     rule = _rule_name(name)
-    return _apply([
+    ok, msg = _apply([
         ["netsh", "advfirewall", "firewall", "delete", "rule", "name=" + rule],
         ["netsh", "advfirewall", "firewall", "add", "rule", "name=" + rule,
          "dir=out", "action=block", "program=" + exe, "enable=yes"]])
+    if not ok:
+        return ok, msg
+    exists, _ = _rule_program(rule)
+    if not exists:
+        return False, "Windows Firewall did not keep the rule"
+    return True, ""
+
+
+def ensure_block(name, exe):
+    """(ok, message): make sure the block rule is present and points at this file. Read-only
+    when all is well, so re-applying at startup costs no Windows prompt; a missing or stale
+    rule (app updated, firewall reset) is rebuilt through block_app."""
+    if not exe:
+        return False, "the program's file could not be found"
+    exists, program = _rule_program(_rule_name(name))
+    if exists and (not program or os.path.normcase(program) == os.path.normcase(exe)):
+        return True, ""
+    return block_app(name, exe)
 
 
 def unblock_app(name):
@@ -136,14 +177,7 @@ def unblock_app(name):
 
 def cut_active():
     """True when the whole-PC cutoff is in place. Read-only; works without admin."""
-    if not sys.platform.startswith("win"):
-        return False
-    try:
-        r = subprocess.run(["netsh", "advfirewall", "firewall", "show", "rule", "name=" + CUT_RULE],
-                           capture_output=True, timeout=6, creationflags=NO_WINDOW)
-        return r.returncode == 0  # 0 = the rule exists, 1 = "No rules match" (in any language)
-    except (OSError, subprocess.SubprocessError):
-        return False
+    return _rule_program(CUT_RULE)[0]
 
 
 def cut_internet():
@@ -164,3 +198,40 @@ def restore_internet():
     return _apply([
         ["netsh", "advfirewall", "firewall", "delete", "rule", "name=" + CUT_RULE],
         ["netsh", "advfirewall", "firewall", "delete", "rule", "name=" + ALLOW_RULE]])
+
+
+def _seal_names(exe):
+    base = exe.replace("\\", "/").rsplit("/", 1)[-1]
+    safe = "".join(c if c.isalnum() or c in ".-_" else "_" for c in base)[:60]
+    return SEAL_RULE + safe, SEAL_ALLOW + safe
+
+
+def seal_app(exes):
+    """(ok, message): keep DataGuard's own interpreter(s) off the internet while loopback
+    stays allowed (the dashboard and the CLI still work). Already sealed = read-only, no
+    Windows prompt; only a missing or stale rule is rebuilt."""
+    if not sys.platform.startswith("win"):
+        return False, "only Windows has this firewall"
+    argvs = []
+    for exe in exes:
+        if not exe or not os.path.isfile(exe):
+            continue
+        block, allow = _seal_names(exe)
+        for rule, act, extra in ((allow, "allow", ["remoteip=127.0.0.1,localsubnet"]),
+                                 (block, "block", [])):
+            exists, program = _rule_program(rule)
+            if exists and (not program or os.path.normcase(program) == os.path.normcase(exe)):
+                continue
+            argvs += [["netsh", "advfirewall", "firewall", "delete", "rule", "name=" + rule],
+                      ["netsh", "advfirewall", "firewall", "add", "rule", "name=" + rule,
+                       "dir=out", "action=" + act, "program=" + exe] + extra]
+    if not argvs:
+        return True, ""  # already sealed: nothing to ask Windows for
+    ok, msg = _apply(argvs)
+    if not ok:
+        return ok, msg
+    for exe in exes:
+        if exe and os.path.isfile(exe) and not _rule_program(_seal_names(exe)[0])[0]:
+            return False, "Windows Firewall did not keep the self-block rule"
+    logging.info("firewall: sealed DataGuard from the internet (%s)", ", ".join(exes))
+    return True, ""

@@ -89,6 +89,18 @@ def print_status(s, running):
         print(f"  Network   {s.get('iface')} - {'counting' if s.get('counting') else 'NOT counting (different Wi-Fi)'}")
 
 
+def _seal_targets():
+    """The installed layout's own interpreter(s), or [] in a dev run (that Python is shared
+    with every other tool on this machine and must never be sealed)."""
+    if not IS_WIN:
+        return []
+    here = Path(__file__).resolve().parent.parent  # the folder holding dataguard.py
+    exe_dir = Path(sys.executable).resolve().parent
+    if exe_dir != here:
+        return []
+    return [str(p) for p in (exe_dir / "python.exe", exe_dir / "pythonw.exe") if p.is_file()]
+
+
 def cmd_run(args, home):
     for name in ("stdout", "stderr"):  # pythonw has no console streams
         if getattr(sys, name) is None:
@@ -99,7 +111,7 @@ def cmd_run(args, home):
     url = f"http://127.0.0.1:{port}"
     mon = Monitor(store)
     Handler.mon = mon
-    tries = 8 if os.environ.get("DG_RESTART") else 1  # right after an update the old copy may hold the port a beat
+    tries = 8 if os.environ.get("DG_RESTART") else 1  # a copy that is still shutting down may hold the port a beat
     server = None
     for attempt in range(tries):
         try:
@@ -118,13 +130,19 @@ def cmd_run(args, home):
     tracker.start()
     mon_t = threading.Thread(target=mon.run, daemon=True)
     mon_t.start()
+
+    def seal():  # installed app only: keep DataGuard itself off the internet (loopback kept)
+        from . import firewall
+        ok, why = firewall.seal_app(_seal_targets())
+        if not ok and why:
+            logging.warning("firewall: DataGuard is not sealed off the internet: %s", why)
+
+    if _seal_targets():
+        threading.Thread(target=seal, daemon=True, name="dataguard-seal").start()
     try:
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     except (ValueError, OSError):
         pass
-    from . import update
-    update.set_shutdown(lambda: (mon.stop.set(), mon.wake.set(), tracker.stop(), store.flush(force=True)))
-    update.start_check()  # one look for a newer release, a few seconds after start
     logging.info("DataGuard running. Dashboard: %s   (Ctrl+C to stop)", url)
     from . import shell
     try:
