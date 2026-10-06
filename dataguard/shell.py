@@ -25,6 +25,8 @@ except ImportError:
 TITLE = "DataGuard"
 WM_SETICON, ICON_SMALL, ICON_BIG = 0x80, 0, 1
 IMAGE_ICON, LR_LOADFROMFILE = 1, 0x10
+GCLP_HICON, GCLP_HICONSM = -14, -34  # window-class icons: what the taskbar/Alt-Tab fall back to
+SW_MAXIMIZE, SW_RESTORE = 3, 9
 _icon_handles = []  # SendMessage handed these to the window: they must outlive the call
 _typed = False
 
@@ -44,6 +46,14 @@ def _user32():
         u32.LoadImageW.restype = wintypes.HANDLE
         u32.SendMessageW.argtypes = (wintypes.HWND, ctypes.c_uint, ctypes.c_size_t, ctypes.c_size_t)
         u32.SendMessageW.restype = ctypes.c_size_t
+        u32.SetClassLongPtrW.argtypes = (wintypes.HWND, ctypes.c_int, ctypes.c_size_t)
+        u32.SetClassLongPtrW.restype = ctypes.c_size_t
+        u32.IsIconic.argtypes = (wintypes.HWND,)
+        u32.IsIconic.restype = wintypes.BOOL
+        u32.IsZoomed.argtypes = (wintypes.HWND,)
+        u32.IsZoomed.restype = wintypes.BOOL
+        u32.ShowWindow.argtypes = (wintypes.HWND, ctypes.c_int)
+        u32.ShowWindow.restype = wintypes.BOOL
         _typed = True
     return u32
 
@@ -70,7 +80,7 @@ def _icon_file(im):
 
 
 def _window_icon(path):
-    """WM_SETICON so taskbar + titlebar show the shield. Win32: any thread may call it."""
+    """WM_SETICON + class icons: the shield on the taskbar, in Alt-Tab and in the titlebar."""
     if not path or windll is None:
         return
     try:
@@ -78,13 +88,28 @@ def _window_icon(path):
         hwnd = u32.FindWindowW(None, TITLE)
         if not hwnd:
             return
-        for wparam in (ICON_SMALL, ICON_BIG):
-            handle = u32.LoadImageW(None, path, IMAGE_ICON, 0, 0, LR_LOADFROMFILE)
-            if handle:
-                _icon_handles.append(handle)  # the window keeps pointing at it
-                u32.SendMessageW(hwnd, WM_SETICON, wparam, handle)
+        small = u32.LoadImageW(None, path, IMAGE_ICON, 0, 0, LR_LOADFROMFILE)
+        big = u32.LoadImageW(None, path, IMAGE_ICON, 0, 0, LR_LOADFROMFILE)
+        if small:
+            _icon_handles.append(small)  # the window keeps pointing at it
+            u32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, small)
+            u32.SetClassLongPtrW(hwnd, GCLP_HICONSM, small)
+        if big:
+            _icon_handles.append(big)
+            u32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, big)
+            u32.SetClassLongPtrW(hwnd, GCLP_HICON, big)
     except Exception:
         pass  # cosmetic: the default icon stays
+
+
+_win_act = None  # run() installs this: the HTML titlebar buttons act on the open window
+
+
+def win_action(act):
+    """"min"/"max"/"close" from the HTML titlebar (via /api/win). No window open: no-op."""
+    if _win_act is None:
+        return False
+    return bool(_win_act(act))
 
 
 def _focus():
@@ -101,6 +126,7 @@ def _focus():
 
 def run(url, open_now=False):
     """Tray icon + dashboard window; blocks until Exit. Without the extras: browser + console, as before."""
+    global _win_act
     if not HAVE_SHELL:
         if pystray is None or webview is None:
             print("Tip: pip install pystray pillow pywebview  (tray icon + app window)", flush=True)
@@ -116,6 +142,29 @@ def run(url, open_now=False):
     ico = _icon_file(im)
     opened, quitting = threading.Event(), threading.Event()
     holder = {"win": None, "broken": False}
+
+    def _do_act(act):
+        w = holder["win"]
+        if w is None:
+            return False
+        if act == "min":
+            w.minimize()
+        elif act == "close":
+            w.hide()
+        elif act == "max":
+            if windll is None:
+                return False
+            u32 = _user32()
+            hwnd = u32.FindWindowW(None, TITLE)
+            if not hwnd:
+                return False
+            to = SW_RESTORE if (u32.IsIconic(hwnd) or u32.IsZoomed(hwnd)) else SW_MAXIMIZE
+            u32.ShowWindow(hwnd, to)
+        else:
+            return False
+        return True
+
+    _win_act = _do_act
 
     def open_win(icon=None, item=None):
         if holder["broken"]:
@@ -173,8 +222,14 @@ def run(url, open_now=False):
             if holder["win"] is not None:
                 continue
             try:
-                w = webview.create_window(TITLE, url, width=1120, height=850, min_size=(760, 560))
-                w.events.shown += lambda: _window_icon(ico)
+                w = webview.create_window(TITLE, url, width=1120, height=850, min_size=(760, 560),
+                                          frameless=True, easy_drag=False)  # the HTML draws its own titlebar
+
+                def on_shown():
+                    _window_icon(ico)
+                    threading.Timer(1.0, _window_icon, (ico,)).start()  # beat Windows' cached taskbar icon
+
+                w.events.shown += on_shown
 
                 def on_closing(ww=w, quit=quitting):
                     if quit.is_set():
@@ -193,6 +248,7 @@ def run(url, open_now=False):
     except (KeyboardInterrupt, SystemExit):
         pass
     finally:
+        _win_act = None
         try:
             icon.stop()
         except Exception:

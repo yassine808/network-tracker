@@ -4,6 +4,7 @@ import json
 import threading
 from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
 
 from .common import APP, IS_WIN
 from .frontend import PAGE
@@ -74,6 +75,10 @@ class Handler(BaseHTTPRequestHandler):
                                        "interval": 0, "err": "tracker not running"})
                 start, _ = cycle_bounds(date.today(), self.mon.store.cfg["reset_day"])
                 self._json(self.tracker.snapshot(start, date.today()))
+            elif path == "/api/win":
+                from . import shell  # the tray/webview shell is optional
+                act = parse_qs(urlparse(self.path).query).get("act", [""])[0]
+                self._json({"ok": shell.win_action(act)})
             else:
                 self._json({"error": "not found"}, 404)
         except (BrokenPipeError, ConnectionError):

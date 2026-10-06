@@ -18,6 +18,28 @@
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--f);font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
 main{max-width:1040px;margin:0 auto;padding:26px 18px 60px;display:grid;gap:16px}
+
+/* scrollbars */
+::-webkit-scrollbar{width:11px;height:11px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--line);border:3px solid transparent;background-clip:content-box;border-radius:99px}
+::-webkit-scrollbar-thumb:hover{background:color-mix(in srgb,var(--mute) 55%,transparent);background-clip:content-box}
+::-webkit-scrollbar-corner{background:transparent}
+
+/* frameless desktop window: the titlebar lives in the page (hidden in a normal browser) */
+#wbar{display:none;position:fixed;top:0;left:0;right:11px;height:36px;z-index:60;align-items:center;
+  background:var(--card);border-bottom:1px solid var(--line);user-select:none;-webkit-user-select:none}
+html.nw #wbar{display:flex}
+html.nw body{padding-top:36px}
+#drag{display:flex;align-items:center;gap:9px;flex:1;height:100%;padding:0 14px;min-width:0}
+#drag svg{width:15px;height:15px;color:var(--acc);flex:none}
+#drag span{font-size:12.5px;font-weight:650;letter-spacing:-.01em;color:var(--mute);white-space:nowrap}
+.wbtn{width:46px;height:36px;border:0;padding:0;background:transparent;color:var(--mute);
+  display:flex;align-items:center;justify-content:center;cursor:default}
+.wbtn svg{width:11px;height:11px}
+.wbtn:hover{background:var(--track);color:var(--ink)}
+.wbtn:active{opacity:.65}
+.wbtn.x:hover{background:var(--bad);color:#fff}
 :focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:6px}
 
 /* header */
@@ -149,7 +171,17 @@ footer{font-size:12.5px;color:var(--mute);text-align:center;padding-top:6px}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 @media(max-width:560px){.apphead,.approw summary{grid-template-columns:minmax(80px,1fr) 60px 70px}.apphead span:nth-child(2),.approw summary .meter{display:none}.row{grid-template-columns:1fr 1fr auto}}
 </style></head>
-<body><main>
+<body>
+<div id="wbar">
+  <div id="drag" class="pywebview-drag-region">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8.3 7.5 9.5 4.4-1.2 7.5-4.9 7.5-9.5V6L12 3Z"/><path d="M8.5 13.5 11 11l2 2 2.5-3"/></svg>
+    <span>DataGuard</span>
+  </div>
+  <button type="button" class="wbtn" id="wmin" title="Minimize" aria-label="Minimize"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1 6h10" stroke="currentColor" stroke-width="1.2"/></svg></button>
+  <button type="button" class="wbtn" id="wmax" title="Maximize" aria-label="Maximize"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1.6" y="1.6" width="8.8" height="8.8" fill="none" stroke="currentColor" stroke-width="1.2"/></svg></button>
+  <button type="button" class="wbtn x" id="wcls" title="Close to tray" aria-label="Close to tray"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.2"/></svg></button>
+</div>
+<main>
 <header>
   <div class="brand">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8.3 7.5 9.5 4.4-1.2 7.5-4.9 7.5-9.5V6L12 3Z"/><path d="M8.5 13.5 11 11l2 2 2.5-3"/></svg>
@@ -478,6 +510,17 @@ $("#calBtn").onclick = async () => {
   if (!(v >= 0)) return msg("Enter the GB your carrier reports.");
   try { await post("/api/calibrate", {gb: v}); msg("Calibrated."); tick(); } catch (e) { msg(e.message); }
 };
+
+/* frameless desktop window: show the built-in titlebar and wire its buttons */
+const winShell = () => {
+  document.documentElement.classList.add("nw");
+  const act = a => fetch("/api/win?act=" + a).catch(() => {});
+  $("#wmin").onclick = () => act("min");
+  $("#wmax").onclick = () => act("max");
+  $("#wcls").onclick = () => act("close");
+};
+if (window.pywebview) winShell();
+else window.addEventListener("pywebviewready", winShell, {once: true});
 
 async function tick() {
   try { render(await (await fetch("/api/status", {cache: "no-store"})).json()); }
