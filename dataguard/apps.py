@@ -130,8 +130,14 @@ class AppTracker(threading.Thread):
         self.supported = IS_WIN
         self.err = ""
         self.base = {}      # pid -> (name, other_bytes) at the previous tick
+        self.paths = {}     # app name -> its .exe, for the Apps page (icon + block button)
+        self.blocked = set()  # apps the user switched to "block internet" this session
         self.t_flush = time.time()
         self.stop_event = threading.Event()
+
+    def exe(self, name):
+        """Last known file path for an app, or "" when it never showed one."""
+        return self.paths.get(name) or ""
 
     def run(self):
         if not self.supported:
@@ -158,10 +164,12 @@ class AppTracker(threading.Thread):
             pids = None
         day = date.today().isoformat()
         cur, gained = {}, 0
-        for p in psutil.process_iter(["name"]):
+        for p in psutil.process_iter(["name", "exe"]):
+            name = p.info.get("name") or f"pid {p.pid}"
+            if p.info.get("exe"):
+                self.paths.setdefault(name, p.info["exe"])  # record for every process, connected or not
             if pids is not None and p.pid not in pids:
                 continue
-            name = p.info.get("name") or f"pid {p.pid}"
             try:
                 v = io_proxy(p)
             except (psutil.AccessDenied, psutil.Error, AttributeError):
@@ -180,5 +188,7 @@ class AppTracker(threading.Thread):
 
     def snapshot(self, cycle_start, today):
         data = self.store.snapshot(cycle_start, today)
+        for r in data["apps"]:
+            r["blocked"] = r["app"] in self.blocked
         data.update(supported=self.supported, interval=self.INTERVAL, err=self.err)
         return data
