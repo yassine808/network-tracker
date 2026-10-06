@@ -6,22 +6,23 @@
 <link rel="icon" href="data:,">
 <style>
 :root{color-scheme:dark;
---bg:oklch(0.1765 0.0346 267.3);--card:oklch(0.2218 0.0452 266.0);--card2:oklch(0.1991 0.0402 265.6);
---ink:oklch(0.9454 0.0187 266.0);--mute:oklch(0.7144 0.0516 264.7);--line:oklch(0.3122 0.0574 264.3);
---acc:oklch(0.6806 0.1684 261.4);--accink:oklch(0.2040 0.0556 266.3);
+--bg:oklch(0.198 0.008 248);--card:oklch(0.235 0.012 264);--card2:oklch(0.217 0.013 264);
+--ink:oklch(0.940 0.006 265);--mute:oklch(0.703 0.014 256);--line:oklch(0.315 0.014 257);
+--acc:oklch(0.611 0.144 256);--acc2:oklch(0.420 0.100 254);--accink:oklch(0.966 0.005 258);
 --ok:oklch(0.7704 0.1492 160.5);--warn:oklch(0.8208 0.1470 80.7);--bad:oklch(0.7168 0.1768 24.2);
---track:oklch(0.2888 0.0563 264.8);--wash:oklch(0.2115 0.0512 267.1);
+--track:oklch(0.287 0.013 253);--wash:oklch(0.221 0.011 261);
 --s1:oklch(0.7776 0.1347 233.9);--s2:oklch(0.7090 0.1592 293.5);
---tick:oklch(0.5935 0.0655 264.8);--grid:rgba(90,115,160,.5);
+--tick:oklch(0.626 0.011 267);--grid:rgba(150,156,166,.30);
 --f:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
 --fd:"Segoe UI Variable Display","Segoe UI Light","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
 --mono:ui-monospace,"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace}
 @supports not (color:oklch(0.5 0.01 260)){:root{
---bg:#0a1020;--card:#111a30;--card2:#0d1528;--ink:#e7edfa;--mute:#93a3c4;--line:#22304e;
---acc:#5b95ff;--accink:#0b1530;--ok:#45d194;--warn:#f5b942;--bad:#ff6f6b;
---track:#1d2a47;--wash:#0e1730;--s1:#4cc4ff;--s2:#a78bfa;--tick:#6b7ea6}}
+--bg:#131619;--card:#1B1E24;--card2:#171A20;--ink:#E9EBEF;--mute:#9AA0A8;--line:#2D3239;
+--acc:#4384D8;--acc2:#214E82;--accink:#F2F4F7;--ok:#45d194;--warn:#f5b942;--bad:#ff6f6b;
+--track:#262B31;--wash:#181B20;--s1:#4cc4ff;--s2:#a78bfa;--tick:#85888F;
+--grid:rgba(150,156,166,.30)}}
 *{box-sizing:border-box}
-body{margin:0;background:radial-gradient(1250px 720px at 78% -14%,color-mix(in srgb,var(--acc) 13%,transparent),transparent 60%),var(--bg);color:var(--ink);font:15px/1.5 var(--f);font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;overflow:hidden}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--f);font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;overflow:hidden}
 
 /* app shell: fixed sidebar + internally scrolling content pane */
 #app{display:flex;height:100vh}
@@ -69,7 +70,12 @@ h3{margin:0 0 2px;font-size:13px;font-weight:650}
 .arc.hot{filter:drop-shadow(0 0 7px currentColor)}
 .big{font:300 27px var(--fd);fill:var(--ink);letter-spacing:-.02em}
 .lead span{font-size:14px;color:var(--mute)}
-.lead b{display:block;font:300 clamp(48px,9vw,78px)/1.02 var(--fd);letter-spacing:-.035em;margin:2px 0 4px}
+.lead .remrow{display:flex;align-items:baseline;gap:7px;margin:2px 0 4px}
+.lead #rem{font:300 clamp(48px,9vw,78px)/1.02 var(--fd);letter-spacing:-.035em;width:4.4ch;min-width:3.4ch;padding:0 7px;border:1px solid transparent;border-radius:14px;background:transparent;color:var(--ink);font-variant-numeric:tabular-nums;-moz-appearance:textfield}
+.lead #rem::-webkit-outer-spin-button,.lead #rem::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.lead #rem:hover{border-color:var(--acc)}
+.lead #rem:focus{border-color:var(--acc)}
+.lead #remu{font:300 clamp(20px,3.5vw,30px)/1 var(--fd);color:var(--mute);font-style:normal}
 .lead small{display:block;color:var(--mute);font-size:13.5px;min-height:1.4em}
 .facts{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin:6px -4px 0;border-top:1px solid var(--line);padding-top:16px}
 .facts>div{padding:0 18px 0 4px}
@@ -90,9 +96,9 @@ h3{margin:0 0 2px;font-size:13px;font-weight:650}
 #killBox .bic{color:var(--warn)}
 
 /* one full-screen veil carries every warning: the upcoming cut, the empty plan, a bad day */
-#veil{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(4,8,16,.5);backdrop-filter:blur(26px) saturate(1.1);-webkit-backdrop-filter:blur(26px) saturate(1.1)}
+#veil{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(14,16,19,.55);backdrop-filter:blur(26px) saturate(1.1);-webkit-backdrop-filter:blur(26px) saturate(1.1)}
 #veil[hidden]{display:none}
-#veil .vcard{width:min(520px,100%);text-align:center;padding:36px 32px 30px;border-radius:22px;background:color-mix(in srgb,var(--card) 84%,transparent);border:1px solid var(--line);box-shadow:0 34px 90px rgba(2,6,18,.72);animation:vIn .4s cubic-bezier(.22,1,.36,1)}
+#veil .vcard{width:min(520px,100%);text-align:center;padding:36px 32px 30px;border-radius:22px;background:color-mix(in srgb,var(--card) 84%,transparent);border:1px solid var(--line);box-shadow:0 34px 90px rgba(8,9,11,.72);animation:vIn .4s cubic-bezier(.22,1,.36,1)}
 #veil .vic{width:40px;height:40px;margin:0 auto 14px;color:var(--warn)}
 #veil.lvl-bad .vic{color:var(--bad);animation:iconPulse 1.6s ease-in-out infinite}
 #veil .vcard b{display:block;font-size:23px;letter-spacing:-.015em}
@@ -145,7 +151,7 @@ svg text{font-family:inherit}
 button{font:inherit;font-size:14px;padding:8px 15px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;transition:border-color .15s,background .15s,color .15s,transform .12s}
 button:hover{border-color:var(--acc)}button:disabled{opacity:.6;cursor:default}
 button:not(:disabled):active{transform:scale(.97)}
-button.pri{background:var(--acc);color:var(--accink);border-color:transparent;font-weight:650}
+button.pri{background:var(--acc2);color:var(--accink);border-color:transparent;font-weight:650}
 button.pri:hover{filter:brightness(1.08)}
 button.danger{border-color:var(--bad);color:var(--bad)}
 button.danger:hover{background:var(--bad);color:var(--accink);border-color:transparent}
@@ -179,7 +185,7 @@ li.sub .adot{background:var(--line);box-shadow:none}
 .approw summary::-webkit-details-marker{display:none}
 .approw summary:hover .nm{color:var(--acc)}
 .approw .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.aic{width:18px;height:18px;vertical-align:-4px;margin-right:7px;border-radius:5px;object-fit:contain;background:color-mix(in srgb,var(--ink) 93%,transparent);padding:1.5px;box-shadow:0 1px 3px rgba(0,0,0,.4)}
+.aic{width:18px;height:18px;vertical-align:-4px;margin-right:7px;border-radius:5px;object-fit:contain;background:color-mix(in srgb,var(--ink) 93%,transparent);padding:1.5px;box-shadow:0 1px 3px rgba(8,9,11,.5)}
 .blk{padding:4px 10px;font-size:12.5px;justify-self:end;border-radius:8px}
 .blk.on{border-color:var(--bad);color:var(--bad)}
 .approw .car{display:inline-block;color:var(--mute);margin-right:6px;transition:transform .15s}
@@ -213,7 +219,7 @@ li.sub .adot{background:var(--line);box-shadow:none}
 @keyframes iconPulse{50%{transform:scale(1.2)}}
 @keyframes growUp{from{transform:scaleY(0)}}
 #bars.grow rect{transform-box:fill-box;transform-origin:50% 100%;animation:growUp .5s cubic-bezier(.22,1,.36,1) both}
-#toast{position:fixed;right:26px;bottom:26px;max-width:340px;padding:11px 16px;border-radius:12px;background:var(--card);border:1px solid var(--line);box-shadow:0 14px 40px rgba(2,6,18,.6);color:var(--ink);font-size:13.5px;line-height:1.45;z-index:90;opacity:0;transform:translateY(16px) scale(.97);transition:opacity .28s cubic-bezier(.22,1,.36,1),transform .34s cubic-bezier(.22,1,.36,1)}
+#toast{position:fixed;right:26px;bottom:26px;max-width:340px;padding:11px 16px;border-radius:12px;background:var(--card);border:1px solid var(--line);box-shadow:0 14px 40px rgba(8,9,11,.6);color:var(--ink);font-size:13.5px;line-height:1.45;z-index:90;opacity:0;transform:translateY(16px) scale(.97);transition:opacity .28s cubic-bezier(.22,1,.36,1),transform .34s cubic-bezier(.22,1,.36,1)}
 #toast.show{opacity:1;transform:none}
 #toast.err{border-color:color-mix(in srgb,var(--bad) 70%,var(--line));background:color-mix(in srgb,var(--bad) 12%,var(--card))}
 #toast[hidden]{display:none}
@@ -237,7 +243,7 @@ li.sub .adot{background:var(--line);box-shadow:none}
     <circle id="arc" class="arc" cx="60" cy="60" r="52" transform="rotate(-90 60 60)"/>
     <text id="pct" class="big" x="60" y="69" text-anchor="middle">-</text>
   </svg>
-  <div class="lead"><span id="remk">Left this cycle</span><b id="rem">-</b><small id="remn"></small></div>
+  <div class="lead"><span id="remk">Left this cycle</span><div class="remrow"><input id="rem" type="number" step="0.01" inputmode="decimal" aria-label="Gigabytes left this cycle, negative if over plan"><i id="remu">GB</i></div><small id="remn"></small></div>
   <div class="facts">
     <div><span>Used this cycle</span><b id="used">-</b>
       <small class="planline"><label for="planGb">plan</label><input id="planGb" type="number" min="1" max="100000" step="1" inputmode="decimal" aria-label="Data plan size in gigabytes"><span>GB</span></small></div>
@@ -500,6 +506,12 @@ function fillForm(s) {
   sel.value = c.iface; filled = true;
 }
 
+function fitRem() {
+  const el = $("#rem");
+  const chars = Array.from(el.value).reduce((n, c) => n + (c === "." ? .45 : c === "-" ? .6 : 1), 0);
+  el.style.width = (chars + .45) + "ch";
+}
+
 function render(s) {
   U = {gb: s.unit_gb, mb: s.unit_mb};
   ST = s;
@@ -514,8 +526,12 @@ function render(s) {
   const pin = $("#planGb");
   if (document.activeElement !== pin) pin.value = s.cfg.plan_gb;   // don't fight the user while they type
   const left = s.remaining;
-  txt("#remk", left >= 0 ? "Left this cycle" : "Over plan by");
-  txt("#rem", sz(Math.abs(left)));
+  const remIn = $("#rem");
+  if (document.activeElement !== remIn) {
+    txt("#remk", left >= 0 ? "Left this cycle" : "Over plan by");
+    remIn.value = String(Math.round(Math.abs(left) / U.gb * 100) / 100);
+    fitRem();
+  }
   txt("#remn", s.reserve ? gb(s.reserve) + " reserve already in the ring" : "");
   txt("#days", String(s.days_left));
   txt("#renew", "renews " + dstr(s.cycle_end));
@@ -782,6 +798,44 @@ $("#planGb").onchange = async () => {
   } catch (e) {
     toast("Couldn't save the plan size: " + e.message, "err");
     if (ST) el.value = ST.cfg.plan_gb;
+  }
+};
+/* GB left, editable right on the main page: type what the carrier reports as remaining */
+$("#rem").onfocus = () => {
+  const el = $("#rem");
+  if (!ST) return;
+  el.value = String(Math.round(ST.remaining / U.gb * 100) / 100);  // signed while editing: negative = over plan
+  txt("#remk", "Left this cycle");
+  fitRem();
+  el.select();
+};
+$("#rem").oninput = fitRem;
+$("#rem").onkeydown = e => {
+  if (e.key === "Enter") { e.preventDefault(); e.target.blur(); }
+  else if (e.key === "Escape") { e.preventDefault(); remRevert(); e.target.blur(); }
+};
+function remRevert() {
+  const el = $("#rem"), busy = document.activeElement === el;
+  if (ST) {
+    el.value = String(Math.round((busy ? ST.remaining : Math.abs(ST.remaining)) / U.gb * 100) / 100);
+    txt("#remk", busy || ST.remaining >= 0 ? "Left this cycle" : "Over plan by");
+    fitRem();
+  }
+}
+$("#rem").onchange = async () => {
+  const el = $("#rem"), plan = ST ? ST.cfg.plan_gb : null;
+  const v = parseFloat(el.value);
+  if (plan === null || !isFinite(v)) { remRevert(); toast("GB left must be a number.", "err"); return; }
+  if (v > plan) { remRevert(); toast("Left can't be more than the " + plan + " GB plan.", "err"); return; }
+  if (v < plan - 100000) { remRevert(); toast("GB left is out of range.", "err"); return; }
+  try {
+    await post("/api/calibrate", {gb: plan - v});
+    toast("Left set to " + v + " GB.");
+    sfx.saved();
+    tick();
+  } catch (e) {
+    toast("Couldn't update the GB left: " + e.message, "err");
+    remRevert();
   }
 };
 $("#useSsid").onclick = async () => {

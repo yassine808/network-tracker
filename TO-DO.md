@@ -1,6 +1,8 @@
-- [x] Make the shown GB modifiable in the main page, that 3gb upfront shouldnt be subscracted from total, but still calculated in the %
+- [x] Make the shown GB modifiable in the main page: the GB left and the plan size are editable in place; the 3gb upfront isn't subtracted from the shown total but is still calculated in the %
 - [x] Removes internet if exceede too much, (special warning + ignore button)
 - [x] do like a big blurry window to ignore warnings (all 3, yellow ,after quota and before the internet is cut)
 - [x] All this should only be working if connected to a specific Network, if not then dont calculate anything
 - [x] auto-updater searches in github releases then updates to last version (only once to save internet) , it should check and show if it's the last version in the app
 - [x] add Ci github
+- [] add setup.exe that auto starts when pc turns on.
+- [] remove feature that auto checks update, the app shouldn't use internet at all, even it's python.exe
