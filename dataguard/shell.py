@@ -96,45 +96,35 @@ def _window_icon(path):
         pass  # cosmetic: the default icon stays
 
 
-_win_act = None  # run() installs this: the HTML titlebar buttons act on the open window
-
-
-def _window_shadow():
-    """Native drop shadow on the frameless window: a 1 px DWM frame makes Windows draw the outer
-    shadow, like a normal window. Cosmetic: any failure just leaves the window flat."""
+def _dark_titlebar():
+    """Let Windows draw the titlebar dark when the system is in dark mode (Win10 20H1+).
+    Cosmetic: any failure just keeps the normal light titlebar."""
     if windll is None:
         return
     try:
         from ctypes import wintypes
 
-        class MARGINS(ctypes.Structure):
-            _fields_ = [("cxLeftWidth", ctypes.c_int), ("cxRightWidth", ctypes.c_int),
-                        ("cyTopHeight", ctypes.c_int), ("cyBottomHeight", ctypes.c_int)]
-
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as k:
+                light, _ = winreg.QueryValueEx(k, "AppsUseLightTheme")
+            dark = 0 if light else 1  # match the dashboard, which follows the system theme
+        except OSError:
+            dark = 1
         u32 = _user32()
         hwnd = u32.FindWindowW(None, TITLE)
         if not hwnd:
             return
-        dwm = ctypes.WinDLL("dwmapi")
-        dwm.DwmExtendFrameIntoClientArea.argtypes = (wintypes.HWND, ctypes.POINTER(MARGINS))
-        dwm.DwmExtendFrameIntoClientArea.restype = ctypes.c_long  # HRESULT
-        dwm.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(MARGINS(1, 1, 1, 1)))
-        # private loader: typing SetWindowPos on the shared windll would break pywebview's window.move()
-        pub = ctypes.WinDLL("user32")
-        pub.SetWindowPos.argtypes = (wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
-                                     ctypes.c_int, ctypes.c_int, ctypes.c_uint)
-        pub.SetWindowPos.restype = wintypes.BOOL
-        pub.SetWindowPos(hwnd, None, 0, 0, 0, 0,
-                         0x0001 | 0x0002 | 0x0004 | 0x0020)  # NOSIZE|NOMOVE|NOZORDER|FRAMECHANGE
+        dwm = ctypes.WinDLL("dwmapi")  # private loader: windll stays untyped for pywebview
+        dwm.DwmSetWindowAttribute.argtypes = (wintypes.HWND, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint)
+        dwm.DwmSetWindowAttribute.restype = ctypes.c_long  # HRESULT
+        for attr in (20, 19):  # 20 = DWMWA_USE_IMMERSIVE_DARK_MODE (20H1+), 19 = the first build's value
+            if dwm.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(ctypes.c_int(dark)),
+                                         ctypes.sizeof(ctypes.c_int)) == 0:
+                break
     except Exception:
         pass  # cosmetic
-
-
-def win_action(act):
-    """"min"/"close" from the HTML titlebar (via /api/win). No window open: no-op."""
-    if _win_act is None:
-        return False
-    return bool(_win_act(act))
 
 
 def _focus():
@@ -151,7 +141,6 @@ def _focus():
 
 def run(url, open_now=False):
     """Tray icon + dashboard window; blocks until Exit. Without the extras: browser + console, as before."""
-    global _win_act
     if not HAVE_SHELL:
         if pystray is None or webview is None:
             print("Tip: pip install pystray pillow pywebview  (tray icon + app window)", flush=True)
@@ -167,20 +156,6 @@ def run(url, open_now=False):
     ico = _icon_file(im)
     opened, quitting = threading.Event(), threading.Event()
     holder = {"win": None, "broken": False}
-
-    def _do_act(act):
-        w = holder["win"]
-        if w is None:
-            return False
-        if act == "min":
-            w.minimize()
-        elif act == "close":
-            w.hide()  # parks in the tray; Exit really quits
-        else:
-            return False
-        return True
-
-    _win_act = _do_act
 
     def open_win(icon=None, item=None):
         if holder["broken"]:
@@ -238,11 +213,10 @@ def run(url, open_now=False):
             if holder["win"] is not None:
                 continue
             try:
-                w = webview.create_window(TITLE, url, width=1100, height=740, resizable=False,
-                                          frameless=True, easy_drag=False)  # fixed size; the HTML draws its own titlebar
+                w = webview.create_window(TITLE, url, width=1100, height=740, resizable=False)
 
                 def on_shown():
-                    _window_shadow()
+                    _dark_titlebar()
                     _window_icon(ico)
                     threading.Timer(1.0, _window_icon, (ico,)).start()  # beat Windows' cached taskbar icon
 
@@ -265,7 +239,6 @@ def run(url, open_now=False):
     except (KeyboardInterrupt, SystemExit):
         pass
     finally:
-        _win_act = None
         try:
             icon.stop()
         except Exception:
