@@ -20,7 +20,6 @@ body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--f);font-
 
 /* app shell: fixed sidebar + internally scrolling content pane */
 #app{display:flex;height:100vh}
-html.nw #app{height:calc(100vh - 36px)}
 #side{width:212px;flex:none;background:var(--card);border-right:1px solid var(--line);display:flex;flex-direction:column;gap:4px;padding:14px 12px;min-height:0}
 #pane{flex:1;overflow-y:auto;padding:24px 20px 40px;min-width:0}
 .cwrap{max-width:1040px;margin:0 auto}
@@ -39,20 +38,7 @@ html.nw #app{height:calc(100vh - 36px)}
 ::-webkit-scrollbar-thumb:hover{background:color-mix(in srgb,var(--mute) 55%,transparent);background-clip:content-box}
 ::-webkit-scrollbar-corner{background:transparent}
 
-/* frameless desktop window: the titlebar lives in the page (hidden in a normal browser) */
-#wbar{display:none;position:fixed;top:0;left:0;right:0;height:36px;z-index:60;align-items:center;
-  background:var(--card);border-bottom:1px solid var(--line);user-select:none;-webkit-user-select:none}
-html.nw #wbar{display:flex}
-html.nw body{padding-top:36px}
-#drag{display:flex;align-items:center;gap:9px;flex:1;height:100%;padding:0 14px;min-width:0}
-#drag svg{width:15px;height:15px;color:var(--acc);flex:none}
-#drag span{font-size:12.5px;font-weight:650;letter-spacing:-.01em;color:var(--mute);white-space:nowrap}
-.wbtn{width:46px;height:36px;border:0;padding:0;background:transparent;color:var(--mute);
-  display:flex;align-items:center;justify-content:center;cursor:default}
-.wbtn svg{width:11px;height:11px}
-.wbtn:hover{background:var(--track);color:var(--ink)}
-.wbtn:active{opacity:.65}
-.wbtn.x:hover{background:var(--bad);color:#fff}
+/* desktop window: the native Windows titlebar draws outside this page */
 :focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:6px}
 
 /* status chip (lives in the sidebar) */
@@ -86,7 +72,14 @@ h3{margin:0 0 2px;font-size:13px;font-weight:650}
 .facts b{display:block;font-size:22px;font-weight:600;letter-spacing:-.02em;margin:1px 0}
 .facts small{display:block;color:var(--mute);font-size:12.5px}
 @media(max-width:700px){.hero{grid-template-columns:1fr;justify-items:center;text-align:center;padding:22px 18px}.facts{margin:6px 0 0}.facts>div,.facts>div+div{padding:10px 0;border-left:0;text-align:left}}
-.hint{margin:0;font-size:13.5px;color:var(--mute);padding:10px 14px;border-left:3px solid var(--acc);background:var(--card);border-radius:0 10px 10px 0}
+
+/* over-quota alarm + kill-switch banners (on the main page) */
+#overBox,#killBox{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 18px}
+#overBox[hidden],#killBox[hidden]{display:none}
+#overBox{border-color:var(--bad)}
+#overBox b{font-size:14px;color:var(--bad)}
+#killBox{border-color:var(--warn)}
+#killBox b{font-size:14px}
 
 /* today / pace / live strip */
 .strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));padding:0}
@@ -155,7 +148,7 @@ li .t{font-weight:650}li small{color:var(--mute);display:block;font-size:12.5px}
 li.sub{border-left-color:var(--line)}
 
 /* apps table */
-.apphead,.approw summary{display:grid;grid-template-columns:minmax(110px,200px) 1fr 76px 88px;gap:14px;align-items:center}
+.apphead,.approw summary{display:grid;grid-template-columns:minmax(110px,200px) 1fr 76px 88px 118px;gap:14px;align-items:center}
 .apphead{font-size:12.5px;color:var(--mute);padding:12px 0 6px}
 .apphead[hidden]{display:none}
 .apphead span:nth-child(n+3){text-align:right}
@@ -164,6 +157,9 @@ li.sub{border-left-color:var(--line)}
 .approw summary::-webkit-details-marker{display:none}
 .approw summary:hover .nm{color:var(--acc)}
 .approw .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.aic{width:16px;height:16px;vertical-align:-3px;margin-right:7px;border-radius:3px;object-fit:contain}
+.blk{padding:4px 10px;font-size:12.5px;justify-self:end;border-radius:8px}
+.blk.on{border-color:var(--bad);color:var(--bad)}
 .approw .car{display:inline-block;color:var(--mute);margin-right:6px;transition:transform .15s}
 .approw[open] .car{transform:rotate(90deg)}
 .approw .meter{margin:0}
@@ -179,17 +175,9 @@ li.sub{border-left-color:var(--line)}
 .group>p{margin:0 0 12px}
 .form{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin:0 0 14px}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
-@media(max-width:560px){.apphead,.approw summary{grid-template-columns:minmax(80px,1fr) 60px 70px}.apphead span:nth-child(2),.approw summary .meter{display:none}.row{grid-template-columns:1fr 1fr auto}}
+@media(max-width:560px){.apphead,.approw summary{grid-template-columns:minmax(80px,1fr) 60px 70px 104px}.apphead span:nth-child(2),.approw summary .meter{display:none}.row{grid-template-columns:1fr 1fr auto}}
 </style></head>
 <body>
-<div id="wbar">
-  <div id="drag" class="pywebview-drag-region">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8.3 7.5 9.5 4.4-1.2 7.5-4.9 7.5-9.5V6L12 3Z"/><path d="M8.5 13.5 11 11l2 2 2.5-3"/></svg>
-    <span>DataGuard</span>
-  </div>
-  <button type="button" class="wbtn" id="wmin" title="Minimize" aria-label="Minimize"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1 6h10" stroke="currentColor" stroke-width="1.2"/></svg></button>
-  <button type="button" class="wbtn x" id="wcls" title="Close to tray" aria-label="Close to tray"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.2"/></svg></button>
-</div>
 <div id="app">
 <nav id="side">
   <span id="chip" class="chip">Connecting&hellip;</span>
@@ -215,7 +203,14 @@ li.sub{border-left-color:var(--line)}
     <div><span>Safe daily allowance</span><b id="allow">-</b><small>to last until renewal</small></div>
   </div>
 </section>
-<p class="hint" id="hint" hidden></p>
+<div class="card" id="killBox" hidden>
+  <div><b id="killTxt">Internet cut off</b><p class="sub" id="killSub" style="margin:2px 0 0"></p></div>
+  <button type="button" id="killBtn" class="danger">Restore internet</button>
+</div>
+<div class="card" id="overBox" hidden>
+  <div><b>Data budget used up</b><p class="sub" id="overSub" style="margin:2px 0 0"></p></div>
+  <button type="button" id="ignoreBtn">Ignore</button>
+</div>
 
 <div class="card strip">
   <section><h2>Today</h2>
@@ -263,7 +258,7 @@ li.sub{border-left-color:var(--line)}
 
   <section class="card"><h2>Data by app</h2>
     <div class="sub" id="appsNote">Loading&hellip;</div>
-    <div class="apphead" id="appsHead" hidden><span>App</span><span>Share of this cycle</span><span>Today</span><span>This cycle</span></div>
+    <div class="apphead" id="appsHead" hidden><span>App</span><span>Share of this cycle</span><span>Today</span><span>This cycle</span><span></span></div>
     <div id="apps"></div></section>
 </div>
 
@@ -327,6 +322,30 @@ const tone = p => p >= 90 ? "var(--bad)" : p >= 75 ? "var(--warn)" : "var(--ok)"
 const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
 const svg = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
 const msg = t => { txt("#msg", t); clearTimeout(msgTimer); msgTimer = setTimeout(() => txt("#msg", ""), 6000); };
+
+/* ---- sounds: a chime when the day's allowance nears its end, an alarm at 100% until Ignore ---- */
+const dayKey = () => { const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+let ac = null, alarmTimer = 0, was75 = false;
+const actx = () => ac || (ac = new (window.AudioContext || window.webkitAudioContext)());
+window.addEventListener("pointerdown", () => { try { actx().resume(); } catch (e) {} }, {once: true});
+function beep(seq) {
+  try {
+    const a = actx(); if (a.state === "suspended") a.resume();
+    seq.forEach(([f, t0, d]) => {  // [frequency, start offset, duration] seconds
+      const o = a.createOscillator(), g = a.createGain(), t = a.currentTime + t0;
+      o.type = "sine"; o.frequency.value = f;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.exponentialRampToValueAtTime(0.22, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, t + d);
+      o.connect(g); g.connect(a.destination); o.start(t); o.stop(t + d + 0.05);
+    });
+  } catch (e) {}  // no audio device: the banners still tell the story
+}
+const CHIME = [[659, 0, .18], [880, .2, .32]];           // yellow warning: a quick rising pair
+const ALARM = [[880, 0, .14], [659, .18, .14], [880, .36, .14], [659, .54, .14]];
+function startAlarm() { if (alarmTimer) return; beep(ALARM); alarmTimer = setInterval(() => beep(ALARM), 30000); }
+function stopAlarm() { if (alarmTimer) { clearInterval(alarmTimer); alarmTimer = 0; } }
 
 /* smooth monotone curve through points (no overshoot), returned as an SVG path */
 function smooth(p) {
@@ -436,10 +455,28 @@ function render(s) {
     ul.appendChild(li);
   });
 
-  const tips = [];
-  if (!s.cfg.ssid) tips.push("Tip: open Settings and enter your phone's hotspot name so only that traffic is counted.");
-  if (!s.offset) tips.push("Tip: your phone's own traffic isn't visible here. Calibrate with your carrier's figure (Settings) to keep totals exact.");
-  const hint = $("#hint"); hint.hidden = !tips.length; hint.textContent = tips[0] || "";
+  /* chime once when the day's allowance hits 75%; alarm every 30 s at 100% until Ignore */
+  const dk = dayKey(), over = s.pct >= 100;
+  if (s.pct >= 75 && !over && !was75) beep(CHIME);
+  was75 = s.pct >= 75;
+  const silent = localStorage.getItem("dg_alarm_off") === dk;
+  $("#overBox").hidden = !over || silent;
+  if (over && !silent) {
+    txt("#overSub", sz(s.used) + " used of your " + gb(s.budget) + " budget \u2014 the alarm repeats every 30 seconds until you press Ignore.");
+    startAlarm();
+  } else stopAlarm();
+
+  /* kill-switch: cut off, or about to be (on your hotspot, past the 10 GB cap) */
+  const k = s.kill || {}, pend = !k.active && s.cfg.ssid && s.today >= (k.gb || 10) * U.gb && !k.fired;
+  killActive = !!k.active;
+  $("#killBox").hidden = !(k.active || pend);
+  if (k.active || pend) {
+    txt("#killTxt", k.active ? "Internet is cut off" : "10 GB daily cap reached");
+    txt("#killSub", k.active
+      ? "Today's " + (k.gb || 10) + " GB hotspot cap was reached. It lifts tomorrow \u2014 or restore it now."
+      : "DataGuard will cut this computer's internet while you're on \u201c" + s.cfg.ssid + "\u201d.");
+    $("#killBtn").textContent = k.active ? "Restore internet" : "Cut internet now";
+  }
   if (!filled) fillForm(s);
 }
 
@@ -472,6 +509,20 @@ async function who() {
 
 $("#whoBtn").onclick = who;
 
+/* ---- per-app block button (Windows Firewall; one UAC "yes" per change) ---- */
+let blockBusy = false, appsFlash = "";
+async function toggleBlock(btn, name, on) {
+  if (blockBusy) return;
+  blockBusy = true; btn.disabled = true; btn.textContent = "Waiting\u2026";
+  try {
+    await post("/api/block_app", {app: name, on: on});
+    appsFlash = (on ? "Blocked internet for " : "Allowed ") + name + ".";
+  } catch (e) { appsFlash = name + ": " + e.message; }
+  blockBusy = false;
+  clearTimeout(window.__af); window.__af = setTimeout(() => { appsFlash = ""; }, 6000);
+  tick();
+}
+
 function renderApps(a) {
   const box = $("#apps"), note = $("#appsNote"), head = $("#appsHead");
   if (!a.supported) {
@@ -479,8 +530,8 @@ function renderApps(a) {
     note.textContent = "Per-app history only works on Windows.";
     return;
   }
-  note.textContent = a.err ? "Tracker problem: " + a.err
-    : "Estimated from per-app I/O counters while DataGuard runs \u2014 not exact network bytes.";
+  note.textContent = appsFlash || (a.err ? "Tracker problem: " + a.err
+    : "Estimated from per-app I/O counters while DataGuard runs \u2014 not exact network bytes.");
   const rows = (a.apps || []).slice(0, 15), days = a.days || [];
   head.hidden = !rows.length;
   box.replaceChildren();
@@ -489,10 +540,22 @@ function renderApps(a) {
   rows.forEach(r => {
     const d = mk("details", "approw"), s = mk("summary");
     const nm = mk("span", "nm");
-    nm.append(mk("span", "car", "\u25b8"), document.createTextNode(r.app));
+    nm.append(mk("span", "car", "\u25b8"));
+    const ic = mk("img", "aic"); ic.alt = ""; ic.loading = "lazy";
+    ic.src = "/api/app_icon?name=" + encodeURIComponent(r.app);
+    ic.onerror = () => ic.remove();
+    nm.append(ic, document.createTextNode(r.app));
     const m = mk("div", "meter"), i = mk("i");
     i.style.width = Math.max(2, r.cycle / share * 100) + "%"; m.appendChild(i);
     s.append(nm, m, mk("span", "v1", sz(r.today)), mk("span", "v2", sz(r.cycle)));
+    const used = Object.values(r.days).filter(b => b > 0).length;   // >= 1 GB on an average active day
+    if (r.blocked || r.d30 / (used || 1) >= U.gb) {
+      const b = mk("button", "blk" + (r.blocked ? " on" : ""), r.blocked ? "Unblock" : "Block internet");
+      b.type = "button"; b.title = (r.blocked ? "Allow " : "Block ") + r.app + " to use the internet";
+      if (blockBusy) b.disabled = true;
+      b.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); toggleBlock(b, r.app, !r.blocked); };
+      s.append(b);
+    }
     const barsBox = mk("div", "days"), top = Math.max(...Object.values(r.days), 1);
     days.forEach(day => {
       const b = r.days[day] || 0, bar = mk("i", b ? "" : "z");
@@ -537,15 +600,16 @@ $("#resetBtn").onclick = async () => {
   try { await post("/api/reset", {}); msg("This cycle was reset."); tick(); } catch (e) { msg(e.message); }
 };
 
-/* frameless desktop window: show the built-in titlebar and wire its buttons */
-const winShell = () => {
-  document.documentElement.classList.add("nw");
-  const act = a => fetch("/api/win?act=" + a).catch(() => {});
-  $("#wmin").onclick = () => act("min");
-  $("#wcls").onclick = () => act("close");
+let killActive = false;
+$("#ignoreBtn").onclick = () => {
+  localStorage.setItem("dg_alarm_off", dayKey()); stopAlarm(); $("#overBox").hidden = true;
 };
-if (window.pywebview) winShell();
-else window.addEventListener("pywebviewready", winShell, {once: true});
+$("#killBtn").onclick = async () => {
+  $("#killBtn").disabled = true;
+  try { await post("/api/kill", {on: !killActive}); }
+  catch (e) { txt("#killSub", "Couldn't: " + e.message); }
+  $("#killBtn").disabled = false; tick();
+};
 
 /* left sidebar: switch panels without page navigation */
 const go = key => {
