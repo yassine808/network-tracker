@@ -601,6 +601,59 @@ async function toggleBlock(btn, name, on) {
   tick();
 }
 
+function buildAppRow(r, days, share) {
+  const d = mk("details", "approw"); d.dataset.app = r.app;
+  const s = mk("summary");
+  const nm = mk("span", "nm");
+  nm.append(mk("span", "car", "\u25b8"));
+  const ic = mk("img", "aic"); ic.alt = ""; ic.loading = "lazy";
+  ic.src = "/api/app_icon?name=" + encodeURIComponent(r.app);
+  ic.onerror = () => ic.remove();
+  nm.append(ic, document.createTextNode(r.app));
+  const m = mk("div", "meter"); m.appendChild(mk("i"));
+  s.append(nm, m, mk("span", "v1"), mk("span", "v2"));
+  const lbl = mk("div", "daylbl");
+  lbl.append(mk("span"), mk("span", "", "last 30 days"), mk("span"));
+  d.append(s, mk("div", "days"), lbl);
+  syncAppRow(d, r, days, share);
+  return d;
+}
+
+/* patch an existing row instead of rebuilding it: a 2 s refresh must not
+   collapse an open row, drop hover or focus, or reload the icon */
+function syncAppRow(d, r, days, share) {
+  const s = d.querySelector("summary");
+  s.querySelector(".v1").textContent = sz(r.today);
+  s.querySelector(".v2").textContent = sz(r.cycle);
+  s.querySelector(".meter i").style.width = Math.max(2, r.cycle / share * 100) + "%";
+
+  const active = Object.values(r.days).filter(b => b > 0).length;
+  const show = r.blocked || r.d30 / (active || 1) >= U.gb;
+  let b = s.querySelector("button.blk");
+  if (show) {
+    if (!b) { b = mk("button", "blk"); b.type = "button"; s.appendChild(b); }
+    b.className = "blk" + (r.blocked ? " on" : "");
+    b.textContent = r.blocked ? "Unblock" : "Block internet";
+    b.title = (r.blocked ? "Allow " : "Block ") + r.app + " to use the internet";
+    b.disabled = blockBusy;
+    b.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); toggleBlock(b, r.app, !r.blocked); };
+  } else if (b) b.remove();
+
+  const barsBox = d.querySelector(".days"), top = Math.max(...Object.values(r.days), 1);
+  while (barsBox.children.length > days.length) barsBox.lastChild.remove();
+  days.forEach((day, n) => {
+    let bar = barsBox.children[n];
+    if (!bar) { bar = mk("i"); barsBox.appendChild(bar); }
+    const v = r.days[day] || 0;
+    bar.className = v ? "" : "z";
+    bar.style.height = (v ? Math.max(4, v / top * 100) : 4) + "%";
+    bar.title = dstr(day) + ": " + sz(v);
+  });
+  const lbl = d.querySelector(".daylbl").children;
+  lbl[0].textContent = days.length ? dstr(days[0]) : "";
+  lbl[2].textContent = days.length ? dstr(days[days.length - 1]) : "";
+}
+
 function renderApps(a) {
   const box = $("#apps"), note = $("#appsNote"), head = $("#appsHead");
   if (!a.supported) {
@@ -612,43 +665,26 @@ function renderApps(a) {
     : "Estimated from per-app I/O counters while DataGuard runs: an approximation, not exact network bytes.");
   const rows = (a.apps || []).slice(0, 15), days = a.days || [];
   head.hidden = !rows.length;
-  box.replaceChildren();
-  if (!rows.length) { box.appendChild(mk("div", "sub", "Nothing recorded yet; totals build up in the background.")); return; }
+  if (!rows.length) { box.replaceChildren(mk("div", "sub", "Nothing recorded yet; totals build up in the background.")); return; }
+
   const share = a.total_cycle || 1;
-  rows.forEach(r => {
-    const d = mk("details", "approw"), s = mk("summary");
-    const nm = mk("span", "nm");
-    nm.append(mk("span", "car", "\u25b8"));
-    const ic = mk("img", "aic"); ic.alt = ""; ic.loading = "lazy";
-    ic.src = "/api/app_icon?name=" + encodeURIComponent(r.app);
-    ic.onerror = () => ic.remove();
-    nm.append(ic, document.createTextNode(r.app));
-    const m = mk("div", "meter"), i = mk("i");
-    i.style.width = Math.max(2, r.cycle / share * 100) + "%"; m.appendChild(i);
-    s.append(nm, m, mk("span", "v1", sz(r.today)), mk("span", "v2", sz(r.cycle)));
-    const used = Object.values(r.days).filter(b => b > 0).length;   // >= 1 GB on an average active day
-    if (r.blocked || r.d30 / (used || 1) >= U.gb) {
-      const b = mk("button", "blk" + (r.blocked ? " on" : ""), r.blocked ? "Unblock" : "Block internet");
-      b.type = "button"; b.title = (r.blocked ? "Allow " : "Block ") + r.app + " to use the internet";
-      if (blockBusy) b.disabled = true;
-      b.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); toggleBlock(b, r.app, !r.blocked); };
-      s.append(b);
-    }
-    const barsBox = mk("div", "days"), top = Math.max(...Object.values(r.days), 1);
-    days.forEach(day => {
-      const b = r.days[day] || 0, bar = mk("i", b ? "" : "z");
-      bar.style.height = (b ? Math.max(4, b / top * 100) : 4) + "%";
-      bar.title = dstr(day) + ": " + sz(b);
-      barsBox.appendChild(bar);
-    });
-    const lbl = mk("div", "daylbl");
-    lbl.append(mk("span", "", days.length ? dstr(days[0]) : ""), mk("span", "", "last 30 days"),
-      mk("span", "", days.length ? dstr(days[days.length - 1]) : ""));
-    d.append(s, barsBox, lbl);
-    box.appendChild(d);
-  });
-  if (a.count > rows.length)
-    box.appendChild(mk("div", "sub", a.count + " apps recorded this cycle, showing the top " + rows.length + "."));
+  const have = Array.from(box.querySelectorAll(":scope > details.approw"));
+  const same = have.length === rows.length && rows.every((r, n) => have[n].dataset.app === r.app);
+  if (same) rows.forEach((r, n) => syncAppRow(have[n], r, days, share));
+  else {
+    const open = new Set(have.filter(d => d.open).map(d => d.dataset.app));   // keep rows open across a reorder
+    box.replaceChildren(...rows.map(r => {
+      const d = buildAppRow(r, days, share);
+      if (open.has(r.app)) d.open = true;
+      return d;
+    }));
+  }
+  const more = a.count > rows.length ? a.count + " apps recorded this cycle, showing the top " + rows.length + "." : "";
+  let foot = box.querySelector(":scope > .sub");
+  if (more) {
+    if (!foot) { foot = mk("div", "sub"); box.appendChild(foot); }
+    foot.textContent = more;
+  } else if (foot) foot.remove();
 }
 $("#save").onclick = async () => {
   try {
