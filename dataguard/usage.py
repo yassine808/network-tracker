@@ -1,40 +1,55 @@
-"""Usage history: settings + daily byte counts in two small JSON files. Thread-safe."""
+"""Usage history: settings, daily byte counts, calibration, fired alerts and the alert list,
+all in one small SQLite database. Thread-safe (one guarded connection)."""
 
 import json
-import os
+import logging
+import sqlite3
 import threading
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from .common import DB_NAME
 from .settings import DEFAULTS, clean_cfg, cycle_bounds
+
+_SCHEMA = """CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS days (day TEXT PRIMARY KEY, rx INTEGER NOT NULL, tx INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS cal (cycle TEXT PRIMARY KEY, offset INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS fired (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS alerts (seq INTEGER PRIMARY KEY AUTOINCREMENT, t TEXT NOT NULL,
+                                   kind TEXT NOT NULL, title TEXT NOT NULL, msg TEXT NOT NULL);"""
 
 
 class Store:
-    """Settings + usage history in two small JSON files. Thread-safe."""
+    """Settings + usage history in dataguard.db. Thread-safe."""
 
     KEEP_DAYS = 400
 
     def __init__(self, home):
         self.home = Path(home)
         self.home.mkdir(parents=True, exist_ok=True)
-        self.cfg_path = self.home / "config.json"
-        self.use_path = self.home / "usage.json"
         self.lock = threading.RLock()
+        self.conn = sqlite3.connect(str(self.home / DB_NAME), check_same_thread=False)
         self.cfg = dict(DEFAULTS)
         self.days = {}     # "YYYY-MM-DD" -> [bytes received, bytes sent] counted against the plan
         self.cal = {}      # {"cycle": "YYYY-MM-DD", "offset": bytes}, set by calibrate
         self.fired = {}    # which alerts were already shown
-        self.log = []      # recent alerts, newest last
+        self.log = []      # recent alerts, newest last (display); the table keeps the full history
+        self._pending = []  # alert rows not yet written to the database
         self.dirty = False
+        with self.lock:
+            self.conn.executescript(_SCHEMA)
+            self.conn.commit()
+        self._migrate()
         self._load()
 
-    def _read(self, path):
+    @staticmethod
+    def _read_json(path):
         try:
             return json.loads(path.read_text("utf-8"))
         except FileNotFoundError:
             return None
         except (OSError, ValueError):
-            self._quarantine(path)
+            Store._quarantine(path)
             return None
 
     @staticmethod
@@ -44,33 +59,84 @@ class Store:
         except OSError:
             pass
 
-    def _write(self, path, obj, pretty=False):
-        tmp = path.with_name(path.name + ".tmp")
-        tmp.write_text(json.dumps(obj, indent=2 if pretty else None), "utf-8")
-        os.replace(tmp, path)
+    @staticmethod
+    def _park(path):
+        """Old JSON file imported: keep it as a backup, out of the way."""
+        try:
+            path.replace(path.with_name(path.name + ".migrated"))
+        except OSError:
+            pass
+
+    def _put_settings(self, cfg):
+        self.conn.executemany(
+            "INSERT INTO settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            [(k, json.dumps(v)) for k, v in cfg.items()])
+
+    def _migrate(self):
+        """One-time import of the old config.json + usage.json (the files are renamed afterwards)."""
+        with self.lock, self.conn:
+            if not self.conn.execute("SELECT 1 FROM settings LIMIT 1").fetchone():
+                raw = self._read_json(self.home / "config.json")
+                if isinstance(raw, dict):
+                    try:
+                        cfg = clean_cfg(raw, DEFAULTS)
+                    except ValueError as e:
+                        logging.warning("config.json ignored (%s); using defaults", e)
+                        cfg = dict(DEFAULTS)
+                    self._put_settings(cfg)
+                    self._park(self.home / "config.json")
+            if not self.conn.execute("SELECT 1 FROM days LIMIT 1").fetchone():
+                use = self._read_json(self.home / "usage.json")
+                if isinstance(use, dict):
+                    try:
+                        days = {k: [int(v[0]), int(v[1])] for k, v in (use.get("days") or {}).items()}
+                        cal = dict(use.get("cal") or {})
+                        fired = dict(use.get("fired") or {})
+                        log = [a for a in (use.get("log") or []) if isinstance(a, dict)]
+                        if not isinstance(cal.get("cycle"), str):
+                            cal = {}
+                        if cal:
+                            cal = {"cycle": cal["cycle"], "offset": int(cal.get("offset", 0))}
+                    except (TypeError, ValueError, IndexError, AttributeError):
+                        self._quarantine(self.home / "usage.json")  # malformed: keep the file, start fresh
+                        days, cal, fired, log = {}, {}, {}, []
+                    self.conn.executemany("INSERT OR REPLACE INTO days VALUES (?, ?, ?)",
+                                          [(k, v[0], v[1]) for k, v in days.items()])
+                    if cal:
+                        self.conn.execute("INSERT OR REPLACE INTO cal VALUES (?, ?)",
+                                          (cal["cycle"], cal["offset"]))
+                    self.conn.executemany("INSERT OR REPLACE INTO fired VALUES (?, ?)",
+                                          [(k, json.dumps(v)) for k, v in fired.items()])
+                    self.conn.executemany("INSERT INTO alerts (t, kind, title, msg) VALUES (?, ?, ?, ?)",
+                                          [(str(a.get("t", "")), str(a.get("kind", "info")),
+                                            str(a.get("title", "")), str(a.get("msg", ""))) for a in log])
+                    self._park(self.home / "usage.json")
 
     def _load(self):
-        raw = self._read(self.cfg_path)
-        if isinstance(raw, dict):
+        with self.lock:
+            rows = self.conn.execute("SELECT key, value FROM settings").fetchall()
+            if rows:
+                try:
+                    self.cfg = clean_cfg({k: json.loads(v) for k, v in rows}, DEFAULTS)
+                except ValueError as e:
+                    logging.warning("stored settings ignored (%s); using defaults", e)
+                    self.cfg = dict(DEFAULTS)
+            else:
+                self.cfg = dict(DEFAULTS)
+                with self.conn:  # fresh install: persist the defaults so they are inspectable
+                    self._put_settings(self.cfg)
+            self.days = {d: [rx, tx] for d, rx, tx in self.conn.execute("SELECT day, rx, tx FROM days")}
+            row = self.conn.execute("SELECT cycle, offset FROM cal LIMIT 1").fetchone()
+            self.cal = {"cycle": row[0], "offset": row[1]} if row else {}
             try:
-                self.cfg = clean_cfg(raw, DEFAULTS)
-            except ValueError as e:
-                print(f"config.json ignored ({e}); using defaults")
-        elif raw is None:
-            try:
-                self._write(self.cfg_path, self.cfg, pretty=True)  # create it so it can be edited by hand
-            except OSError:
-                pass
-        use = self._read(self.use_path)
-        if isinstance(use, dict):
-            try:
-                self.days = {k: [int(v[0]), int(v[1])] for k, v in (use.get("days") or {}).items()}
-                self.cal = dict(use.get("cal") or {})
-                self.fired = dict(use.get("fired") or {})
-                self.log = list(use.get("log") or [])
-            except (TypeError, ValueError, IndexError, AttributeError):
-                self._quarantine(self.use_path)
-                self.days, self.cal, self.fired, self.log = {}, {}, {}, []
+                self.fired = {k: json.loads(v) for k, v in self.conn.execute("SELECT key, value FROM fired")}
+            except ValueError:
+                logging.warning("fired-alert state unreadable; starting fresh")
+                self.fired = {}
+            self.log = [{"t": t, "kind": k, "title": ti, "msg": m} for t, k, ti, m in self.conn.execute(
+                "SELECT t, kind, title, msg FROM alerts ORDER BY seq DESC LIMIT 40")]
+            self.log.reverse()
 
     def flush(self, force=False):
         with self.lock:
@@ -79,11 +145,26 @@ class Store:
             cutoff = (date.today() - timedelta(days=self.KEEP_DAYS)).isoformat()
             self.days = {k: v for k, v in self.days.items() if k >= cutoff}
             try:
-                self._write(self.use_path, {"days": self.days, "cal": self.cal,
-                                            "fired": self.fired, "log": self.log[-40:]})
+                with self.conn:
+                    self.conn.executemany(
+                        "INSERT INTO days (day, rx, tx) VALUES (?, ?, ?) "
+                        "ON CONFLICT (day) DO UPDATE SET rx = excluded.rx, tx = excluded.tx",
+                        [(k, v[0], v[1]) for k, v in self.days.items()])
+                    self.conn.execute("DELETE FROM days WHERE day < ?", (cutoff,))
+                    self.conn.execute("DELETE FROM cal")
+                    if self.cal:
+                        self.conn.execute("INSERT INTO cal (cycle, offset) VALUES (?, ?)",
+                                          (self.cal.get("cycle"), int(self.cal.get("offset", 0))))
+                    self.conn.execute("DELETE FROM fired")
+                    self.conn.executemany("INSERT INTO fired (key, value) VALUES (?, ?)",
+                                          [(k, json.dumps(v)) for k, v in self.fired.items()])
+                    if self._pending:
+                        self.conn.executemany("INSERT INTO alerts (t, kind, title, msg) VALUES (?, ?, ?, ?)",
+                                              self._pending)
+                self._pending = []
                 self.dirty = False
-            except OSError:
-                pass  # try again next time
+            except sqlite3.Error:
+                pass  # disk full or locked: try again next time
 
     @property
     def gb(self):
@@ -100,10 +181,34 @@ class Store:
             d[1] += tx
             self.dirty = True
 
+    def add_alert(self, kind, title, msg):
+        with self.lock:
+            e = {"t": datetime.now().isoformat(timespec="seconds"), "kind": kind, "title": title, "msg": msg}
+            self.log.append(e)
+            self.log = self.log[-40:]
+            self._pending.append((e["t"], kind, title, msg))
+            self.dirty = True
+
     def set_config(self, new):
         with self.lock:
             self.cfg = clean_cfg(new, self.cfg)
-            self._write(self.cfg_path, self.cfg, pretty=True)
+            with self.conn:
+                self._put_settings(self.cfg)
+
+    def reset_cycle(self, now=None):
+        """Zero this cycle's counters and calibration; settings, past cycles and the alert list stay."""
+        now = now or datetime.now()
+        with self.lock:
+            start, _ = cycle_bounds(now.date(), self.cfg["reset_day"])
+            skey = start.isoformat()
+            self.days = {k: v for k, v in self.days.items() if k < skey}
+            self.cal = {}
+            self.fired = {"cycle": skey, "pcts": []}  # thresholds re-arm from zero, like a fresh cycle
+            with self.conn:  # flush only upserts memory rows: the cycle's rows must be deleted outright
+                self.conn.execute("DELETE FROM days WHERE day >= ?", (skey,))
+            self.dirty = True
+            self.flush(force=True)
+        return skey
 
     def calibrate(self, gb_used, now=None):
         """Make the app's total for this cycle equal what the carrier reports."""

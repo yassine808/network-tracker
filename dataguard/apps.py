@@ -1,15 +1,15 @@
 """Per-app usage history: a background sampler that records each program's bytes into SQLite."""
 
+import logging
 import sqlite3
 import threading
 import time
 from datetime import date, timedelta
 from pathlib import Path
 
-from .common import IS_WIN, psutil
+from .common import DB_NAME, IS_WIN, psutil
 from .processes import io_proxy
 
-DB_NAME = "app_usage.db"
 KEEP_DAYS = 400
 
 
@@ -33,10 +33,39 @@ class AppStore:
                 "PRIMARY KEY (day, app)) WITHOUT ROWID")
             self.conn.commit()
         self.pending = {}  # (day, app) -> bytes not yet written to disk
+        self._migrate()
+
+    def _migrate(self):
+        """One-time import of the legacy app_usage.db into dataguard.db, then park the old file."""
+        old = self.path.with_name("app_usage.db")
+        with self.lock, self.conn:
+            if self.conn.execute("SELECT 1 FROM app_usage LIMIT 1").fetchone() or not old.exists():
+                return
+            try:
+                src = sqlite3.connect(str(old))
+                try:
+                    rows = src.execute("SELECT day, app, bytes FROM app_usage").fetchall()
+                finally:
+                    src.close()
+                self.conn.executemany("INSERT OR REPLACE INTO app_usage VALUES (?, ?, ?)", rows)
+            except sqlite3.Error as e:
+                logging.warning("app_usage.db import failed (%s); keeping it", e)
+                return
+        try:
+            old.replace(old.with_name(old.name + ".migrated"))
+        except OSError:
+            pass
 
     def add(self, day, app, n):
         with self.lock:
             self.pending[(day, app)] = self.pending.get((day, app), 0) + n
+
+    def clear_since(self, day):
+        """Drop this cycle's per-app rows (reset button): day = first day to remove."""
+        with self.lock:
+            self.pending = {(d, a): n for (d, a), n in self.pending.items() if d < day}
+            with self.conn:
+                self.conn.execute("DELETE FROM app_usage WHERE day >= ?", (day,))
 
     def flush(self, force=False):
         """Write buffered bytes to disk, then drop history older than KEEP_DAYS."""

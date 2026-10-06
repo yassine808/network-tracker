@@ -13,3 +13,4 @@ APP = "DataGuard"
 IS_WIN = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"
 NO_WINDOW = 0x08000000 if IS_WIN else 0  # stops helper commands flashing a console window
+DB_NAME = "dataguard.db"  # one database: settings, daily usage, per-app totals, alert history
