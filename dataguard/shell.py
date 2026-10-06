@@ -26,7 +26,6 @@ TITLE = "DataGuard"
 WM_SETICON, ICON_SMALL, ICON_BIG = 0x80, 0, 1
 IMAGE_ICON, LR_LOADFROMFILE = 1, 0x10
 GCLP_HICON, GCLP_HICONSM = -14, -34  # window-class icons: what the taskbar/Alt-Tab fall back to
-SW_MAXIMIZE, SW_RESTORE = 3, 9
 _icon_handles = []  # SendMessage handed these to the window: they must outlive the call
 _typed = False
 
@@ -48,12 +47,6 @@ def _user32():
         u32.SendMessageW.restype = ctypes.c_size_t
         u32.SetClassLongPtrW.argtypes = (wintypes.HWND, ctypes.c_int, ctypes.c_size_t)
         u32.SetClassLongPtrW.restype = ctypes.c_size_t
-        u32.IsIconic.argtypes = (wintypes.HWND,)
-        u32.IsIconic.restype = wintypes.BOOL
-        u32.IsZoomed.argtypes = (wintypes.HWND,)
-        u32.IsZoomed.restype = wintypes.BOOL
-        u32.ShowWindow.argtypes = (wintypes.HWND, ctypes.c_int)
-        u32.ShowWindow.restype = wintypes.BOOL
         _typed = True
     return u32
 
@@ -106,7 +99,7 @@ _win_act = None  # run() installs this: the HTML titlebar buttons act on the ope
 
 
 def win_action(act):
-    """"min"/"max"/"close" from the HTML titlebar (via /api/win). No window open: no-op."""
+    """"min"/"close" from the HTML titlebar (via /api/win). No window open: no-op."""
     if _win_act is None:
         return False
     return bool(_win_act(act))
@@ -150,16 +143,7 @@ def run(url, open_now=False):
         if act == "min":
             w.minimize()
         elif act == "close":
-            w.hide()
-        elif act == "max":
-            if windll is None:
-                return False
-            u32 = _user32()
-            hwnd = u32.FindWindowW(None, TITLE)
-            if not hwnd:
-                return False
-            to = SW_RESTORE if (u32.IsIconic(hwnd) or u32.IsZoomed(hwnd)) else SW_MAXIMIZE
-            u32.ShowWindow(hwnd, to)
+            w.hide()  # parks in the tray; Exit really quits
         else:
             return False
         return True
@@ -222,8 +206,8 @@ def run(url, open_now=False):
             if holder["win"] is not None:
                 continue
             try:
-                w = webview.create_window(TITLE, url, width=1120, height=850, min_size=(760, 560),
-                                          frameless=True, easy_drag=False)  # the HTML draws its own titlebar
+                w = webview.create_window(TITLE, url, width=1100, height=740, resizable=False,
+                                          frameless=True, easy_drag=False)  # fixed size; the HTML draws its own titlebar
 
                 def on_shown():
                     _window_icon(ico)
