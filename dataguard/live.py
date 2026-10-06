@@ -15,6 +15,8 @@ from .processes import top_processes
 # counter that doubled - the jump looks like real traffic unless it is rejected here.
 COUNTER_JUMP = 2 * 2 ** 30
 
+KILL_GB = 10  # hard daily stop: past this on the configured hotspot, the internet gets cut
+
 
 class Monitor:
     SSID_EVERY = 30  # seconds between Wi-Fi name checks (extra check during big transfers)
@@ -32,6 +34,8 @@ class Monitor:
         self.last_burst = 0.0
         self.t_alert = 0.0
         self.t_flush = time.time()
+        self.t_kill = 0.0
+        self.kill_state = None  # None = not yet synced with the firewall (True/False after check_kill)
         self.err = ""
         self.stop = threading.Event()
         self.wake = threading.Event()     # lets a freshly opened dashboard end the slow idle sleep
@@ -85,6 +89,7 @@ class Monitor:
         if now - self.t_alert >= 10:
             self.t_alert = now
             self.check_alerts(datetime.fromtimestamp(now))
+        self.check_kill(now)
         if now - self.t_flush >= 60:
             self.t_flush = now
             self.store.flush()
@@ -174,6 +179,64 @@ class Monitor:
         self.alert("burst", "Heavy download in progress",
                    f"{got / self.store.mb:.0f} MB in the last minute.{who} Open the dashboard for details.")
 
+    # -- the 10 GB hard stop
+    def check_kill(self, now, force=False):
+        """Cut this PC's internet once usage today passes KILL_GB - but only while the configured
+        hotspot (exact SSID match) is the Wi-Fi actually in use. Any other network, or an unknown
+        name, or no SSID configured at all: the app just watches and never touches the firewall."""
+        st, cfg = self.store, self.store.cfg
+        if not force and now - self.t_kill < 60:
+            return
+        self.t_kill = now
+        from . import firewall  # local: only Windows has the firewall helper
+        try:
+            if self.kill_state is None:
+                self.kill_state = firewall.cut_active()  # pick up a rule left over from a crash
+            ssid, want = self.ssid or "", cfg["ssid"]
+            on = bool(want) and bool(ssid) and ssid == want
+            off = bool(want) and bool(ssid) and ssid != want
+            over = st.summary(datetime.fromtimestamp(now))["today"] >= KILL_GB * st.gb
+            if self.kill_state and (not want or off or not over):
+                ok, err = firewall.restore_internet()
+                if ok:
+                    self.kill_state = False
+                    if not off:  # left the hotspot: coming back re-cuts; manual restore stays open today
+                        with st.lock:
+                            st.fired.pop("killday", None)
+                            st.dirty = True
+                    logging.info("kill-switch: internet restored%s"
+                                 % (" (not over the cap anymore)" if not over else ""))
+                else:
+                    logging.warning("kill-switch: restore failed: %s", err)
+            elif not self.kill_state and on and over and st.fired.get("killday") != date.today().isoformat():
+                ok, err = firewall.cut_internet()
+                if ok:
+                    self.kill_state = True
+                    with st.lock:
+                        st.fired["killday"] = date.today().isoformat()
+                        st.dirty = True
+                    self.alert("kill", "Internet cut off - 10 GB daily cap reached",
+                               f"{st.summary(datetime.fromtimestamp(now))['today'] / st.gb:.1f} GB used today "
+                               "on the hotspot. The cap lifts tomorrow, or tap Restore in the dashboard.")
+                else:
+                    logging.warning("kill-switch: cut failed: %s", err)
+        except Exception as e:  # a firewall hiccup must never take the monitor down
+            logging.warning("kill-switch: %s", e)
+
+    def kill_now(self, on):
+        """Manual cut/restore from the dashboard. (ok, message)."""
+        from . import firewall
+        st = self.store
+        ok, err = firewall.cut_internet() if on else firewall.restore_internet()
+        if ok:
+            self.kill_state = bool(on)
+            with st.lock:
+                if not on:  # an explicit restore is respected for the rest of the day
+                    st.fired["killday"] = date.today().isoformat()
+                st.dirty = True
+            logging.info("kill-switch: internet %s by request", "cut" if on else "restored")
+        return ok, err
+
     # -- loop + status
     def run(self):
         while not self.stop.is_set():
@@ -200,8 +263,10 @@ class Monitor:
             hist = [{"d": (today - timedelta(days=i)).isoformat(),
                      "b": sum(self.store.days.get((today - timedelta(days=i)).isoformat(), [0, 0]))}
                     for i in range(30, -1, -1)]
+            fired_kill = self.store.fired.get("killday") == today.isoformat()
             s.update(cfg=dict(self.store.cfg), alerts=list(reversed(self.store.log[-10:])))
         s.update(iface=self.iface, ssid=self.ssid, counting=self.counting, err=self.err,
+                 kill=dict(active=bool(self.kill_state), gb=KILL_GB, fired=fired_kill),
                  ifaces=sorted(psutil.net_io_counters(pernic=True)),
                  down=rx[0] / 4, up=tx[0] / 4,
                  series_down=[b / 5 for b in srx], series_up=[b / 5 for b in stx], history=hist)
