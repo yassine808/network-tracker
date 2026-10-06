@@ -78,18 +78,22 @@ def cmd_run(args, home):
     Handler.tracker = tracker
     threading.Thread(target=server.serve_forever, daemon=True).start()
     tracker.start()
+    mon_t = threading.Thread(target=mon.run, daemon=True)
+    mon_t.start()
     try:
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     except (ValueError, OSError):
         pass
     print(f"DataGuard running. Dashboard: {url}   (Ctrl+C to stop)", flush=True)
-    if args.open:
-        threading.Timer(0.6, webbrowser.open, (url,)).start()
+    from . import shell
     try:
-        mon.run()
+        shell.run(url, open_now=args.open)
     except (KeyboardInterrupt, SystemExit):
         pass
     finally:
+        mon.stop.set()
+        mon.wake.set()
+        mon_t.join(2)
         tracker.stop()
         store.flush(force=True)
     return 0
@@ -143,7 +147,7 @@ def main(argv=None):
     ap.add_argument("--home", help="folder for settings and history (default: your app-data folder)")
     sub = ap.add_subparsers(dest="cmd")
     p = sub.add_parser("run", help="start monitoring + dashboard (default)")
-    p.add_argument("--open", action="store_true", help="open the dashboard in your browser")
+    p.add_argument("--open", action="store_true", help="open the dashboard window")
     p.add_argument("--port", type=int, help="dashboard port (default 8787)")
     sub.add_parser("status", help="print a summary")
     p = sub.add_parser("calibrate", help="sync with the figure your carrier reports")
