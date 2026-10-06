@@ -16,8 +16,21 @@
 --ok:#46c28a;--warn:#e8a33a;--bad:#ff6b61;--track:#26312c;--wash:#111815;
 --s1:#9d62f2;--s2:#d9c3fa;--tick:#A0AEC0;--grid:rgba(74,85,104,.6)}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--f);font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
-main{max-width:1040px;margin:0 auto;padding:26px 18px 60px;display:grid;gap:16px}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--f);font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;overflow:hidden}
+
+/* app shell: fixed sidebar + internally scrolling content pane */
+#app{display:flex;height:100vh}
+html.nw #app{height:calc(100vh - 36px)}
+#side{width:212px;flex:none;background:var(--card);border-right:1px solid var(--line);display:flex;flex-direction:column;gap:4px;padding:14px 12px;min-height:0}
+#pane{flex:1;overflow-y:auto;padding:24px 20px 40px;min-width:0}
+.cwrap{max-width:1040px;margin:0 auto}
+[data-p]{display:grid;gap:16px}
+[data-p][hidden]{display:none}
+#side footer{margin-top:auto;padding:12px 6px 0;font-size:11.5px;line-height:1.45;color:var(--mute)}
+.nav{display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;border-radius:10px;border:0;background:transparent;color:var(--mute);font:600 14px var(--f);text-align:left;cursor:pointer;transition:background .12s,color .12s}
+.nav svg{width:16px;height:16px;flex:none}
+.nav:hover{background:var(--track);color:var(--ink)}
+.nav.on{background:color-mix(in srgb,var(--acc) 15%,transparent);color:var(--acc)}
 
 /* scrollbars */
 ::-webkit-scrollbar{width:11px;height:11px}
@@ -27,7 +40,7 @@ main{max-width:1040px;margin:0 auto;padding:26px 18px 60px;display:grid;gap:16px
 ::-webkit-scrollbar-corner{background:transparent}
 
 /* frameless desktop window: the titlebar lives in the page (hidden in a normal browser) */
-#wbar{display:none;position:fixed;top:0;left:0;right:11px;height:36px;z-index:60;align-items:center;
+#wbar{display:none;position:fixed;top:0;left:0;right:0;height:36px;z-index:60;align-items:center;
   background:var(--card);border-bottom:1px solid var(--line);user-select:none;-webkit-user-select:none}
 html.nw #wbar{display:flex}
 html.nw body{padding-top:36px}
@@ -42,22 +55,19 @@ html.nw body{padding-top:36px}
 .wbtn.x:hover{background:var(--bad);color:#fff}
 :focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:6px}
 
-/* header */
-header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-bottom:4px}
-.brand{display:flex;align-items:center;gap:10px}
-.brand svg{width:26px;height:26px;color:var(--acc)}
-h1{margin:0;font-size:19px;font-weight:650;letter-spacing:-.015em}
-.chip{display:inline-flex;align-items:center;gap:8px;font-size:13px;padding:5px 12px 5px 10px;border-radius:99px;background:var(--card);border:1px solid var(--line);color:var(--mute)}
+/* status chip (lives in the sidebar) */
+.chip{display:inline-flex;align-items:center;gap:8px;font-size:13px;padding:5px 12px 5px 10px;border-radius:99px;background:var(--bg);border:1px solid var(--line);color:var(--mute)}
 .chip::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--mute);opacity:.6}
 .chip.ok{color:var(--ink)}.chip.ok::before{background:var(--ok);opacity:1;box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 25%,transparent)}
 .chip.warn{color:var(--ink)}.chip.warn::before{background:var(--warn);opacity:1}
+#side .chip{display:block;width:100%;box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#side .chip::before{display:inline-block;margin-right:7px;vertical-align:middle}
 
 /* surfaces */
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px 22px}
 h2{margin:0 0 12px;font-size:14px;font-weight:650;letter-spacing:-.005em}
 h3{margin:0 0 2px;font-size:13px;font-weight:650}
 .sub{color:var(--mute);font-size:13.5px}
-.two{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
 
 /* hero: the dial + the number you care about */
 .hero{display:grid;grid-template-columns:auto 1fr;gap:12px 40px;align-items:center;padding:26px 28px}
@@ -163,11 +173,9 @@ li.sub{border-left-color:var(--line)}
 .daylbl{display:flex;justify-content:space-between;font-size:11.5px;color:var(--mute);padding:0 4px 10px}
 
 /* settings */
-details.set>summary{cursor:pointer;font-weight:650;font-size:14px}
 .group{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
 .group>p{margin:0 0 12px}
 .form{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin:0 0 14px}
-footer{font-size:12.5px;color:var(--mute);text-align:center;padding-top:6px}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 @media(max-width:560px){.apphead,.approw summary{grid-template-columns:minmax(80px,1fr) 60px 70px}.apphead span:nth-child(2),.approw summary .meter{display:none}.row{grid-template-columns:1fr 1fr auto}}
 </style></head>
@@ -178,17 +186,19 @@ footer{font-size:12.5px;color:var(--mute);text-align:center;padding-top:6px}
     <span>DataGuard</span>
   </div>
   <button type="button" class="wbtn" id="wmin" title="Minimize" aria-label="Minimize"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1 6h10" stroke="currentColor" stroke-width="1.2"/></svg></button>
-  <button type="button" class="wbtn" id="wmax" title="Maximize" aria-label="Maximize"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1.6" y="1.6" width="8.8" height="8.8" fill="none" stroke="currentColor" stroke-width="1.2"/></svg></button>
   <button type="button" class="wbtn x" id="wcls" title="Close to tray" aria-label="Close to tray"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.2"/></svg></button>
 </div>
-<main>
-<header>
-  <div class="brand">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8.3 7.5 9.5 4.4-1.2 7.5-4.9 7.5-9.5V6L12 3Z"/><path d="M8.5 13.5 11 11l2 2 2.5-3"/></svg>
-    <h1>DataGuard</h1>
-  </div>
+<div id="app">
+<nav id="side">
   <span id="chip" class="chip">Connecting&hellip;</span>
-</header>
+  <button type="button" class="nav on" data-go="main"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10.5V20h13v-9.5"/></svg>Main</button>
+  <button type="button" class="nav" data-go="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 3.5v2.6M12 17.9v2.6M3.5 12h2.6M17.9 12h2.6M6 6l1.9 1.9M16.1 16.1 18 18M18 6l-1.9 1.9M7.9 16.1 6 18"/></svg>Settings</button>
+  <button type="button" class="nav" data-go="apps"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>Apps</button>
+  <button type="button" class="nav" data-go="alerts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 9.5a5.5 5.5 0 0 1 11 0c0 4.5 1.8 5.5 1.8 5.5H4.7s1.8-1 1.8-5.5Z"/><path d="M10 19a2 2 0 0 0 4 0"/></svg>Alerts</button>
+  <footer>Everything stays on this computer. DataGuard makes no internet connections of its own.</footer>
+</nav>
+<main id="pane"><div class="cwrap">
+<div data-p="main">
 
 <section class="card hero">
   <svg id="ring" viewBox="0 0 120 120" role="img" aria-label="Share of data budget used">
@@ -241,21 +251,26 @@ footer{font-size:12.5px;color:var(--mute);text-align:center;padding-top:6px}
 </div>
 
 <section class="card"><h2>Last 30 days</h2><svg id="bars" viewBox="0 0 600 160"></svg></section>
+</div><!-- /main panel -->
 
-<div class="two">
+<div data-p="apps" hidden>
   <section class="card"><h2>Who's using data right now?</h2>
     <div class="actions"><button id="whoBtn" class="pri">Measure (3 s)</button></div>
     <p class="sub" id="whoNote" style="margin:10px 0 0">Estimated from per-app activity on this computer.</p>
     <div id="who" style="margin-top:12px;display:grid;gap:10px"></div></section>
+
+  <section class="card"><h2>Data by app</h2>
+    <div class="sub" id="appsNote">Loading&hellip;</div>
+    <div class="apphead" id="appsHead" hidden><span>App</span><span>Share of this cycle</span><span>Today</span><span>This cycle</span></div>
+    <div id="apps"></div></section>
+</div>
+
+<div data-p="alerts" hidden>
   <section class="card"><h2>Recent alerts</h2><ul id="alerts"></ul></section>
 </div>
 
-<section class="card"><h2>Data by app</h2>
-  <div class="sub" id="appsNote">Loading&hellip;</div>
-  <div class="apphead" id="appsHead" hidden><span>App</span><span>Share of this cycle</span><span>Today</span><span>This cycle</span></div>
-  <div id="apps"></div></section>
-
-<section class="card"><details class="set"><summary>Settings &amp; calibration</summary>
+<div data-p="settings" hidden>
+<section class="card"><h2>Settings &amp; calibration</h2>
   <div class="group"><h3>Plan</h3><p class="sub">Your data allowance and when it resets.</p>
     <div class="form">
       <label>Plan size (GB)<input id="f_plan" type="number" min="1" step="1"></label>
@@ -283,9 +298,11 @@ footer{font-size:12.5px;color:var(--mute);text-align:center;padding-top:6px}
     <div class="actions">
       <label>Carrier says I've used (GB) this cycle<input id="f_cal" type="number" min="0" step="0.1"></label>
       <button id="calBtn">Calibrate</button></div></div>
-</details></section>
-<footer>Everything stays on this computer. DataGuard makes no internet connections of its own.</footer>
-</main>
+</section>
+</div>
+</div></main>
+</div><!-- /app -->
+
 <script>
 "use strict";
 const $ = s => document.querySelector(s);
@@ -516,11 +533,19 @@ const winShell = () => {
   document.documentElement.classList.add("nw");
   const act = a => fetch("/api/win?act=" + a).catch(() => {});
   $("#wmin").onclick = () => act("min");
-  $("#wmax").onclick = () => act("max");
   $("#wcls").onclick = () => act("close");
 };
 if (window.pywebview) winShell();
 else window.addEventListener("pywebviewready", winShell, {once: true});
+
+/* left sidebar: switch panels without page navigation */
+const go = key => {
+  document.querySelectorAll("[data-p]").forEach(p => { p.hidden = p.dataset.p !== key; });
+  document.querySelectorAll(".nav").forEach(b => b.classList.toggle("on", b.dataset.go === key));
+  $("#pane").scrollTop = 0;
+};
+document.querySelectorAll(".nav").forEach(b => { b.onclick = () => go(b.dataset.go); });
+go("main");
 
 async function tick() {
   try { render(await (await fetch("/api/status", {cache: "no-store"})).json()); }
