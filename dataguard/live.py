@@ -17,6 +17,8 @@ COUNTER_JUMP = 2 * 2 ** 30
 
 KILL_GB = 10  # hard daily stop: past this on the configured hotspot, the internet gets cut
 
+WARN_KINDS = ("level", "daily", "pace", "burst")  # alert kinds the dashboard shows as a warning veil
+
 
 class Monitor:
     SSID_EVERY = 30  # seconds between Wi-Fi name checks (extra check during big transfers)
@@ -74,7 +76,9 @@ class Monitor:
             big = drx + dtx >= 5_000_000
             if now - self.ssid_t >= self.SSID_EVERY or (big and now - self.ssid_t >= 3):
                 self.ssid, self.ssid_t = get_ssid(), now
-            counted = not self.ssid or self.ssid == cfg["ssid"]  # name unknown or unreadable: count rather than miss data
+            # a hotspot is configured: only that exact network counts, an unknown or different
+            # name counts as nothing (the dashboard shows "Not counted on this network")
+            counted = bool(self.ssid) and self.ssid == cfg["ssid"]
         else:
             counted = True
         self.counting = counted
@@ -88,7 +92,8 @@ class Monitor:
             self.check_burst(now)
         if now - self.t_alert >= 10:
             self.t_alert = now
-            self.check_alerts(datetime.fromtimestamp(now))
+            if self.counting:  # off the configured network: no alerts, no projections, nothing calculated
+                self.check_alerts(datetime.fromtimestamp(now))
         self.check_kill(now)
         if now - self.t_flush >= 60:
             self.t_flush = now
@@ -140,12 +145,12 @@ class Monitor:
                 f["pcts"] = sorted(set(f["pcts"]) | set(due))
                 st.dirty = True
                 if top >= 100:
-                    out.append(("limit", "Data budget used up",
-                                f"{g(s['used'])} of {g(s['budget'])} used, {s['days_left']} days to renewal. "
+                    out.append(("limit", "Data plan used up",
+                                f"{g(s['used'])} of {g(s['plan'])} used, {s['days_left']} days to renewal. "
                                 "Pause big downloads and updates."))
                 else:
                     out.append(("level", f"{top}% of your data used",
-                                f"{g(s['used'])} of {g(s['budget'])}. {s['days_left']} days to renewal - "
+                                f"{g(s['used'])} of {g(s['plan'])}. {s['days_left']} days to renewal - "
                                 f"about {g(s['allowance'])} a day keeps you on track."))
             if (f.get("daily") != tkey and s["allowance"] > 0 and s["today"] >= s["allowance"] and s["pct"] < 100):
                 f["daily"] = tkey
@@ -223,6 +228,14 @@ class Monitor:
         except Exception as e:  # a firewall hiccup must never take the monitor down
             logging.warning("kill-switch: %s", e)
 
+    def skip_kill_today(self):
+        """The dashboard's 'cut about to happen' warning was ignored: leave the internet alone today."""
+        with self.store.lock:
+            self.store.fired["killday"] = date.today().isoformat()
+            self.store.dirty = True
+            self.store.flush()
+        logging.info("kill-switch: automatic cut skipped for today on request")
+
     def kill_now(self, on):
         """Manual cut/restore from the dashboard. (ok, message)."""
         from . import firewall
@@ -256,17 +269,23 @@ class Monitor:
             self.wake.set()  # ...and take a reading now instead of waiting out the 5 s idle sleep
         s = self.store.summary(datetime.fromtimestamp(now))
         ref = self.ring[-1][1] if self.ring else now
-        rx, tx = self.window(ref, 4, 1)  # 4 s average: reacts quickly, still smooth
-        srx, stx = self.window(ref, 300, 60)
+        rx, tx = self.window(ref, 4, 1, counted_only=True)   # 4 s average: reacts quickly, still smooth
+        srx, stx = self.window(ref, 300, 60, counted_only=True)
         today = date.today()
         with self.store.lock:
             hist = [{"d": (today - timedelta(days=i)).isoformat(),
                      "b": sum(self.store.days.get((today - timedelta(days=i)).isoformat(), [0, 0]))}
                     for i in range(30, -1, -1)]
             fired_kill = self.store.fired.get("killday") == today.isoformat()
+            warn_today = any(a.get("kind") in WARN_KINDS and str(a.get("t", ""))[:10] == today.isoformat()
+                             for a in self.store.log[-40:])
             s.update(cfg=dict(self.store.cfg), alerts=list(reversed(self.store.log[-10:])))
+        # "about to be cut": the daily cap is reached and nothing has dealt with today yet
+        pending = bool(s["cfg"].get("ssid")) and s["today"] >= KILL_GB * self.store.gb \
+            and not fired_kill and not bool(self.kill_state)
         s.update(iface=self.iface, ssid=self.ssid, counting=self.counting, err=self.err,
-                 kill=dict(active=bool(self.kill_state), gb=KILL_GB, fired=fired_kill),
+                 warn_today=warn_today,
+                 kill=dict(active=bool(self.kill_state), pending=pending, gb=KILL_GB, fired=fired_kill),
                  ifaces=sorted(psutil.net_io_counters(pernic=True)),
                  down=rx[0] / 4, up=tx[0] / 4,
                  series_down=[b / 5 for b in srx], series_up=[b / 5 for b in stx], history=hist)

@@ -7,6 +7,7 @@ import os
 import signal
 import sys
 import threading
+import time
 import webbrowser
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -73,9 +74,9 @@ def print_status(s, running):
     g = lambda b: f"{b / s['unit_gb']:.1f} GB"
     print(f"DataGuard - {'running' if running else 'not running (showing saved data)'}")
     print(f"  Cycle     {s['cycle_start']} to {s['cycle_end']}  ({s['days_left']} days left)")
-    print(f"  Used      {g(s['used'])} of {g(s['budget'])} budget ({s['pct']:.0f}%), plan {g(s['plan'])}")
-    left = s["budget"] - s["used"]
-    print(f"  Left      {g(left) if left >= 0 else 'over budget by ' + g(-left)}")
+    print(f"  Used      {g(s['used'])} of {g(s['plan'])} plan ({s['pct']:.0f}%)")
+    left = s["plan"] - s["used"]
+    print(f"  Left      {g(left) if left >= 0 else 'over plan by ' + g(-left)}")
     print(f"  Today     {g(s['today'])} of a {g(s['allowance'])} daily allowance")
     if s["run_out"]:
         pace = f"~{g(s['avg_daily'])}/day -> runs out around {s['run_out']} ({s['days_early']} days early)"
@@ -98,14 +99,20 @@ def cmd_run(args, home):
     url = f"http://127.0.0.1:{port}"
     mon = Monitor(store)
     Handler.mon = mon
-    try:
-        server = Server(("127.0.0.1", port), Handler)
-    except OSError:
-        print(f"Port {port} is busy - DataGuard is probably already running: {url}")
-        if args.open:
-            webbrowser.open(url)
-        return 0
-    tracker = AppTracker(AppStore(home))
+    tries = 8 if os.environ.get("DG_RESTART") else 1  # right after an update the old copy may hold the port a beat
+    server = None
+    for attempt in range(tries):
+        try:
+            server = Server(("127.0.0.1", port), Handler)
+            break
+        except OSError:
+            if attempt == tries - 1:
+                print(f"Port {port} is busy - DataGuard is probably already running: {url}")
+                if args.open:
+                    webbrowser.open(url)
+                return 0
+            time.sleep(0.75)
+    tracker = AppTracker(AppStore(home), allowed=lambda: bool(mon.counting))  # only on the configured network
     Handler.tracker = tracker
     threading.Thread(target=server.serve_forever, daemon=True).start()
     tracker.start()
@@ -115,6 +122,9 @@ def cmd_run(args, home):
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     except (ValueError, OSError):
         pass
+    from . import update
+    update.set_shutdown(lambda: (mon.stop.set(), mon.wake.set(), tracker.stop(), store.flush(force=True)))
+    update.start_check()  # one look for a newer release, a few seconds after start
     logging.info("DataGuard running. Dashboard: %s   (Ctrl+C to stop)", url)
     from . import shell
     try:

@@ -13,6 +13,7 @@ from .interfaces import get_ssid
 from .notify import notify
 from .processes import top_processes
 from .settings import cycle_bounds
+from . import update
 
 TOP_LOCK = threading.Lock()
 
@@ -59,7 +60,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(data)
             elif path == "/api/status":
-                self._json(self.mon.status())
+                s = self.mon.status()
+                s["update"] = update.status()
+                self._json(s)
             elif path == "/api/top":
                 if not TOP_LOCK.acquire(blocking=False):
                     return self._json({"error": "already measuring"}, 429)
@@ -144,10 +147,21 @@ class Handler(BaseHTTPRequestHandler):
                         raise ValueError(err)
                     self.tracker.blocked.discard(name)
             elif path == "/api/kill":
-                on = bool(body.get("on"))
-                ok, err = self.mon.kill_now(on)
+                if body.get("skip"):  # the "about to be cut" warning was ignored: hands off until tomorrow
+                    self.mon.skip_kill_today()
+                else:
+                    ok, err = self.mon.kill_now(bool(body.get("on")))
+                    if not ok:
+                        raise ValueError(err)
+            elif path == "/api/update":
+                if body.get("action") != "install":
+                    raise ValueError("action must be 'install'")
+                ok, why = update.install()
                 if not ok:
-                    raise ValueError(err)
+                    raise ValueError(why)
+                self._json({"ok": True, "restarting": True})
+                threading.Timer(1.0, update.restart).start()  # let this reply reach the browser first
+                return
             else:
                 return self._json({"error": "not found"}, 404)
             self._json({"ok": True})

@@ -77,18 +77,28 @@ h3{margin:0 0 2px;font-size:13px;font-weight:650}
 .facts span{display:block;font-size:13px;color:var(--mute)}
 .facts b{display:block;font-size:22px;font-weight:600;letter-spacing:-.02em;margin:1px 0}
 .facts small{display:block;color:var(--mute);font-size:12.5px}
+.facts small.planline{display:flex;align-items:center;gap:5px}
+.facts small.planline input{width:4.6em;padding:2px 6px;border-radius:7px;border:1px solid var(--line);background:var(--wash);color:var(--ink);font-size:12.5px;font-weight:600;text-align:right;min-width:0}
+.facts small.planline input:hover{border-color:var(--acc)}
 @media(max-width:700px){.hero{grid-template-columns:1fr;justify-items:center;text-align:center;padding:22px 18px}.facts{margin:6px 0 0}.facts>div,.facts>div+div{padding:10px 0;border-left:0;text-align:left}}
 
-/* over-quota alarm + kill-switch banners (on the main page) */
-#overBox,#killBox{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 18px;animation:bannerIn .45s cubic-bezier(.22,1,.36,1)}
-#overBox[hidden],#killBox[hidden]{display:none}
-#overBox{border-color:color-mix(in srgb,var(--bad) 60%,var(--line));background:color-mix(in srgb,var(--bad) 9%,var(--card))}
-#overBox b{font-size:14px;color:var(--bad)}
-#killBox{border-color:color-mix(in srgb,var(--warn) 55%,var(--line));background:color-mix(in srgb,var(--warn) 8%,var(--card))}
+/* kill-switch banner (in-page reminder once the connection is actually cut) */
+#killBox{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 18px;animation:bannerIn .45s cubic-bezier(.22,1,.36,1);border-color:color-mix(in srgb,var(--warn) 55%,var(--line));background:color-mix(in srgb,var(--warn) 8%,var(--card))}
+#killBox[hidden]{display:none}
 #killBox b{font-size:14px}
 .bic{width:22px;height:22px;flex:none}
-#overBox .bic{color:var(--bad);animation:iconPulse 1.5s ease-in-out infinite}
 #killBox .bic{color:var(--warn)}
+
+/* one full-screen veil carries every warning: the upcoming cut, the empty plan, a bad day */
+#veil{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(4,8,16,.5);backdrop-filter:blur(26px) saturate(1.1);-webkit-backdrop-filter:blur(26px) saturate(1.1)}
+#veil[hidden]{display:none}
+#veil .vcard{width:min(520px,100%);text-align:center;padding:36px 32px 30px;border-radius:22px;background:color-mix(in srgb,var(--card) 84%,transparent);border:1px solid var(--line);box-shadow:0 34px 90px rgba(2,6,18,.72);animation:vIn .4s cubic-bezier(.22,1,.36,1)}
+#veil .vic{width:40px;height:40px;margin:0 auto 14px;color:var(--warn)}
+#veil.lvl-bad .vic{color:var(--bad);animation:iconPulse 1.6s ease-in-out infinite}
+#veil .vcard b{display:block;font-size:23px;letter-spacing:-.015em}
+#veil .vcard p{margin:9px 0 0;color:var(--mute);font-size:14.5px;line-height:1.55}
+#veil .vbtns{display:flex;gap:10px;justify-content:center;margin-top:24px;flex-wrap:wrap}
+@keyframes vIn{from{opacity:0;transform:translateY(18px)}}
 
 /* today / pace / live strip */
 .strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));padding:0}
@@ -203,7 +213,7 @@ li.sub .adot{background:var(--line);box-shadow:none}
 @keyframes iconPulse{50%{transform:scale(1.2)}}
 @keyframes growUp{from{transform:scaleY(0)}}
 #bars.grow rect{transform-box:fill-box;transform-origin:50% 100%;animation:growUp .5s cubic-bezier(.22,1,.36,1) both}
-#toast{position:fixed;right:26px;bottom:26px;max-width:340px;padding:11px 16px;border-radius:12px;background:var(--card);border:1px solid var(--line);box-shadow:0 14px 40px rgba(2,6,18,.6);color:var(--ink);font-size:13.5px;line-height:1.45;z-index:60;opacity:0;transform:translateY(16px) scale(.97);transition:opacity .28s cubic-bezier(.22,1,.36,1),transform .34s cubic-bezier(.22,1,.36,1)}
+#toast{position:fixed;right:26px;bottom:26px;max-width:340px;padding:11px 16px;border-radius:12px;background:var(--card);border:1px solid var(--line);box-shadow:0 14px 40px rgba(2,6,18,.6);color:var(--ink);font-size:13.5px;line-height:1.45;z-index:90;opacity:0;transform:translateY(16px) scale(.97);transition:opacity .28s cubic-bezier(.22,1,.36,1),transform .34s cubic-bezier(.22,1,.36,1)}
 #toast.show{opacity:1;transform:none}
 #toast.err{border-color:color-mix(in srgb,var(--bad) 70%,var(--line));background:color-mix(in srgb,var(--bad) 12%,var(--card))}
 #toast[hidden]{display:none}
@@ -216,20 +226,21 @@ li.sub .adot{background:var(--line);box-shadow:none}
   <button type="button" class="nav" data-go="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 3.5v2.6M12 17.9v2.6M3.5 12h2.6M17.9 12h2.6M6 6l1.9 1.9M16.1 16.1 18 18M18 6l-1.9 1.9M7.9 16.1 6 18"/></svg>Settings</button>
   <button type="button" class="nav" data-go="apps"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>Apps</button>
   <button type="button" class="nav" data-go="alerts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 9.5a5.5 5.5 0 0 1 11 0c0 4.5 1.8 5.5 1.8 5.5H4.7s1.8-1 1.8-5.5Z"/><path d="M10 19a2 2 0 0 0 4 0"/></svg>Alerts</button>
-  <footer>Everything stays on this computer. DataGuard makes no internet connections of its own.</footer>
+  <footer>Everything stays on this computer. The only internet connection is a one-time check for updates when DataGuard starts.</footer>
 </nav>
 <main id="pane"><div class="cwrap">
 <div data-p="main">
 
 <section class="card hero">
-  <svg id="ring" viewBox="0 0 120 120" role="img" aria-label="Share of data budget used">
+  <svg id="ring" viewBox="0 0 120 120" role="img" aria-label="Share of the data plan used">
     <circle class="trk" cx="60" cy="60" r="52"/>
     <circle id="arc" class="arc" cx="60" cy="60" r="52" transform="rotate(-90 60 60)"/>
     <text id="pct" class="big" x="60" y="69" text-anchor="middle">-</text>
   </svg>
-  <div class="lead"><span id="remk">Left in budget</span><b id="rem">-</b><small id="remn"></small></div>
+  <div class="lead"><span id="remk">Left this cycle</span><b id="rem">-</b><small id="remn"></small></div>
   <div class="facts">
-    <div><span>Used this cycle</span><b id="used">-</b><small id="plan"></small></div>
+    <div><span>Used this cycle</span><b id="used">-</b>
+      <small class="planline"><label for="planGb">plan</label><input id="planGb" type="number" min="1" max="100000" step="1" inputmode="decimal" aria-label="Data plan size in gigabytes"><span>GB</span></small></div>
     <div><span>Days to renewal</span><b id="days">-</b><small id="renew"></small></div>
     <div><span>Safe daily allowance</span><b id="allow">-</b><small>to last until renewal</small></div>
   </div>
@@ -238,11 +249,6 @@ li.sub .adot{background:var(--line);box-shadow:none}
   <svg class="bic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M12 4v7"/><path d="M7.6 6.8a7.5 7.5 0 1 0 8.8 0"/></svg>
   <div style="flex:1"><b id="killTxt">Internet cut off</b><p class="sub" id="killSub" style="margin:2px 0 0"></p></div>
   <button type="button" id="killBtn" class="danger">Restore internet</button>
-</div>
-<div class="card" id="overBox" hidden>
-  <svg class="bic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4 2.7 20h18.6L12 4Z"/><path d="M12 10v4.4"/><path d="M12 17.4v.5"/></svg>
-  <div style="flex:1"><b>Data budget used up</b><p class="sub" id="overSub" style="margin:2px 0 0"></p></div>
-  <button type="button" id="ignoreBtn">Ignore</button>
 </div>
 
 <div class="card strip">
@@ -313,9 +319,9 @@ li.sub .adot{background:var(--line);box-shadow:none}
       <label>Phone hotspot Wi-Fi name<input id="f_ssid" placeholder="empty = count the whole interface"></label>
       <label>Network interface<select id="f_iface"></select></label>
     </div></div>
-  <div class="group"><h3>Alerts</h3><p class="sub">Get warned before the budget runs out.</p>
+  <div class="group"><h3>Alerts</h3><p class="sub">Get warned before the plan runs out.</p>
     <div class="form">
-      <label>Alert at (% of budget, comma separated)<input id="f_alerts"></label>
+      <label>Alert at (% of plan, comma separated)<input id="f_alerts"></label>
       <label>Warn above (MB per minute, 0 = off)<input id="f_burst" type="number" min="0"></label>
       <label class="chk"><input id="f_notify" type="checkbox"> Desktop notifications</label>
       <label class="chk"><input id="f_snd" type="checkbox"> Sound effects</label>
@@ -332,17 +338,31 @@ li.sub .adot{background:var(--line);box-shadow:none}
   <div class="group"><h3>Reset this month</h3>
     <p class="sub">Zero this cycle's counters and per-app totals. Settings, past months and the alert list are kept.</p>
     <div class="actions"><button id="resetBtn" class="danger">Reset this month</button></div></div>
+  <div class="group"><h3>About</h3>
+    <p class="sub">DataGuard <b id="verNum">v?</b> <span id="verNote"></span></p>
+    <div class="actions"><button id="updBtn" class="pri" hidden>Install update</button></div></div>
 </section>
 </div>
 </div></main>
 </div><!-- /app -->
+<div id="veil" hidden>
+  <div class="vcard" role="alertdialog" aria-modal="true" aria-labelledby="vTitle" aria-describedby="vMsg">
+    <svg class="vic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4 2.7 20h18.6L12 4Z"/><path d="M12 10v4.4"/><path d="M12 17.4v.5"/></svg>
+    <b id="vTitle"></b>
+    <p id="vMsg"></p>
+    <div class="vbtns">
+      <button type="button" id="vIgnore">Ignore for today</button>
+      <button type="button" id="vAct" hidden></button>
+    </div>
+  </div>
+</div>
 <div id="toast" hidden></div>
 
 <script>
 "use strict";
 const $ = s => document.querySelector(s);
 const NS = "http://www.w3.org/2000/svg";
-let U = {gb: 1e9, mb: 1e6}, filled = false, timer = 0, msgTimer = 0;
+let U = {gb: 1e9, mb: 1e6}, filled = false, timer = 0, msgTimer = 0, ST = null;
 
 const gb = b => { const v = b / U.gb; return (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1)) + " GB"; };
 const sz = b => {
@@ -480,6 +500,7 @@ function fillForm(s) {
 
 function render(s) {
   U = {gb: s.unit_gb, mb: s.unit_mb};
+  ST = s;
   const C = 2 * Math.PI * 52, p = Math.max(0, Math.min(s.pct, 100));
   const arc = $("#arc");
   arc.style.strokeDasharray = (C * p / 100) + " " + C;
@@ -488,11 +509,12 @@ function render(s) {
   arc.classList.toggle("hot", s.pct >= 75);   // soft glow once the day's allowance is nearly gone
   txt("#pct", Math.round(s.pct) + "%");
   txt("#used", sz(s.used));
-  txt("#plan", "of " + gb(s.budget) + " budget (plan " + gb(s.plan) + ")");
-  const left = s.budget - s.used;
-  txt("#remk", left >= 0 ? "Left in budget" : "Over budget by");
+  const pin = $("#planGb");
+  if (document.activeElement !== pin) pin.value = s.cfg.plan_gb;   // don't fight the user while they type
+  const left = s.remaining;
+  txt("#remk", left >= 0 ? "Left this cycle" : "Over plan by");
   txt("#rem", sz(Math.abs(left)));
-  txt("#remn", s.reserve_pct ? gb(s.plan - s.budget) + " reserve kept on top" : "");
+  txt("#remn", s.reserve ? gb(s.reserve) + " reserve already in the ring" : "");
   txt("#days", String(s.days_left));
   txt("#renew", "renews " + dstr(s.cycle_end));
   txt("#allow", gb(s.allowance));
@@ -511,9 +533,9 @@ function render(s) {
     : "Over today's " + gb(s.allowance) + " allowance by " + sz(s.today - s.allowance));
 
   const tag = $("#ptag"), note = $("#pnote");
-  if (s.pct >= 100) { tag.className = "tag bad"; tag.textContent = "Over budget"; note.textContent = "The " + gb(s.budget) + " budget is used up with " + s.days_left + " days to go. Keep to essentials."; }
+  if (s.pct >= 100) { tag.className = "tag bad"; tag.textContent = "Over plan"; note.textContent = sz(s.used) + " used of your " + gb(s.plan) + " plan, " + s.days_left + " days to go. Keep to essentials."; }
   else if (s.run_out) { tag.className = "tag bad"; tag.textContent = "Over pace"; note.textContent = "At ~" + gb(s.avg_daily) + "/day you'd run out around " + dstr(s.run_out) + ", " + s.days_early + " days early. Aim for " + gb(s.allowance) + "/day."; }
-  else if (s.pace_reliable) { tag.className = "tag ok"; tag.textContent = "On track"; note.textContent = "At ~" + gb(s.avg_daily) + "/day you'll finish the cycle near " + gb(s.projected) + " (" + Math.round(100 * s.projected / s.budget) + "% of budget)."; }
+  else if (s.pace_reliable) { tag.className = "tag ok"; tag.textContent = "On track"; note.textContent = "At ~" + gb(s.avg_daily) + "/day you'll finish the cycle near " + gb(s.projected) + " (" + Math.round(100 * (s.projected + (s.reserve || 0)) / s.plan) + "% of plan)."; }
   else { tag.className = "tag"; tag.textContent = "Learning"; note.textContent = "Needs a couple of full days of data before it can predict your pace."; }
 
   txt("#down", sz(s.down) + "/s"); txt("#up", sz(s.up) + "/s");
@@ -531,29 +553,72 @@ function render(s) {
     ul.appendChild(li);
   });
 
-  /* chime once when the day's allowance hits 75%; alarm every 30 s at 100% until Ignore */
+  /* chime once when the day's allowance hits 75%; alarm every 30 s at 100% until ignored */
   const dk = dayKey(), over = s.pct >= 100;
   if (s.pct >= 75 && !over && !was75) chime();
   was75 = s.pct >= 75;
   const silent = localStorage.getItem("dg_alarm_off") === dk;
-  $("#overBox").hidden = !over || silent;
-  if (over && !silent) {
-    txt("#overSub", sz(s.used) + " used of your " + gb(s.budget) + " budget. The alarm repeats every 30 seconds until you press Ignore.");
-    startAlarm();
-  } else stopAlarm();
+  if (over && !silent) startAlarm(); else stopAlarm();
 
-  /* kill-switch: cut off, or about to be (on your hotspot, past the 10 GB cap) */
-  const k = s.kill || {}, pend = !k.active && s.cfg.ssid && s.today >= (k.gb || 10) * U.gb && !k.fired;
+  /* kill-switch: only the in-page reminder while it is actually cut (the veil covers the rest) */
+  const k = s.kill || {};
   killActive = !!k.active;
-  $("#killBox").hidden = !(k.active || pend);
-  if (k.active || pend) {
-    txt("#killTxt", k.active ? "Internet is cut off" : "10 GB daily cap reached");
-    txt("#killSub", k.active
-      ? "Today's " + (k.gb || 10) + " GB hotspot cap was reached. It lifts tomorrow, or restore it now."
-      : "DataGuard will cut this computer's internet while you're on \u201c" + s.cfg.ssid + "\u201d.");
-    $("#killBtn").textContent = k.active ? "Restore internet" : "Cut internet now";
+  $("#killBox").hidden = !k.active;
+  if (k.active) {
+    txt("#killSub", "Today's " + (k.gb || 10) + " GB hotspot cap was reached. It lifts tomorrow, or restore it now.");
+    $("#killBtn").textContent = "Restore internet";
   }
+
+  /* about: the version we run, and an install button while a newer one is waiting */
+  const up = s.update || {};
+  txt("#verNum", "v" + (up.version || "?"));
+  const upNote = up.err ? "Couldn't check for updates (" + up.err + ")."
+    : !up.checked ? "Checking for updates\u2026"
+    : up.available ? "Version " + up.latest + " is ready to install." : "You're on the latest version.";
+  txt("#verNote", upNote ? " \u00b7 " + upNote : "");
+  $("#updBtn").hidden = !up.available || up.busy || !!window.__updating;
+  window.__curVer = up.version || "?";   // so a restart that beats the next poll is still noticed
+
+  /* one veil for every warning: cut > plan used up > a bad day, highest tier wins */
+  const cutIg = localStorage.getItem("dg_ig_cut") === dk, yelIg = localStorage.getItem("dg_ig_yellow") === dk;
+  let tier = "";
+  if (k.active && !cutIg) tier = "cut";
+  else if (k.pending && !cutIg) tier = "pending";
+  else if (over && !silent) tier = "quota";
+  else if (s.warn_today && !yelIg) tier = "yellow";
+  setVeil(tier, s);
   if (!filled) fillForm(s);
+}
+
+/* the full-screen warning veil: shows the current tier's title, message and buttons */
+function setVeil(tier, s) {
+  if (tier !== veilTier) {
+    veilTier = tier;
+    const v = $("#veil");
+    v.hidden = !tier;
+    v.className = (tier === "quota" || tier === "cut") ? "lvl-bad" : "lvl-warn";
+  }
+  if (!tier) return;
+  const act = $("#vAct"), k = s.kill || {};
+  if (tier === "cut") {
+    txt("#vTitle", "Internet is cut off");
+    txt("#vMsg", "Today's " + (k.gb || 10) + " GB hotspot cap was reached. It lifts tomorrow, or restore it now.");
+    act.hidden = false; act.textContent = "Restore internet"; act.className = "danger";
+  } else if (tier === "pending") {
+    txt("#vTitle", (k.gb || 10) + " GB daily cap reached");
+    txt("#vMsg", "DataGuard will cut this computer's internet while you're on \u201c" + s.cfg.ssid + "\u201d. Cut it now, or leave it for tomorrow.");
+    act.hidden = false; act.textContent = "Cut internet now"; act.className = "danger";
+  } else if (tier === "quota") {
+    txt("#vTitle", "Data plan used up");
+    txt("#vMsg", sz(s.used) + " used of your " + gb(s.plan) + " plan with " + s.days_left + " days to renewal. The alarm repeats every 30 seconds until you ignore it.");
+    act.hidden = true;
+  } else {
+    const wa = (s.alerts || []).find(a => ["level", "daily", "pace", "burst"].includes(a.kind) &&
+                                          new Date(a.t).toDateString() === new Date().toDateString());
+    txt("#vTitle", wa ? wa.title : "Data warning");
+    txt("#vMsg", wa ? wa.msg : "Data is being used faster than planned today.");
+    act.hidden = true;
+  }
 }
 
 async function post(path, body) {
@@ -696,6 +761,25 @@ $("#save").onclick = async () => {
     filled = false; msg("Saved."); sfx.saved(); tick();
   } catch (e) { msg(e.message); }
 };
+/* plan size, editable right on the main page */
+$("#planGb").onchange = async () => {
+  const el = $("#planGb"), v = parseFloat(el.value);
+  if (!(v >= 1 && v <= 100000)) {
+    el.value = ST ? ST.cfg.plan_gb : "";
+    toast("Plan size must be between 1 and 100000 GB.", "err");
+    return;
+  }
+  try {
+    await post("/api/config", {plan_gb: v});
+    $("#f_plan").value = v;
+    toast("Plan set to " + v + " GB.");
+    sfx.saved();
+    tick();
+  } catch (e) {
+    toast("Couldn't save the plan size: " + e.message, "err");
+    if (ST) el.value = ST.cfg.plan_gb;
+  }
+};
 $("#useSsid").onclick = async () => {
   try {
     const j = await (await fetch("/api/ssid")).json();
@@ -713,12 +797,20 @@ $("#resetBtn").onclick = async () => {
   if (!confirm("Zero this cycle's usage and per-app totals?\nSettings, past months and the alert list are kept.")) return;
   try { await post("/api/reset", {}); msg("This cycle was reset."); tick(); } catch (e) { msg(e.message); }
 };
+$("#updBtn").onclick = async () => {
+  $("#updBtn").disabled = true;
+  try {
+    window.__updFrom = window.__curVer;
+    await post("/api/update", {action: "install"});
+    window.__updating = 1;   // from here on: the server will go down, then come back newer
+    toast("Update installed. DataGuard is restarting\u2026");
+  } catch (e) {
+    $("#updBtn").disabled = false;
+    toast("Couldn't install: " + e.message, "err");
+  }
+};
 
 let killActive = false;
-$("#ignoreBtn").onclick = () => {
-  localStorage.setItem("dg_alarm_off", dayKey()); stopAlarm(); $("#overBox").hidden = true;
-  toast("Alarm silenced for today.");
-};
 $("#killBtn").onclick = async () => {
   const wasActive = killActive;
   $("#killBtn").disabled = true;
@@ -729,6 +821,29 @@ $("#killBtn").onclick = async () => {
   }
   catch (e) { txt("#killSub", "Couldn't: " + e.message); toast("Couldn't: " + e.message, "err"); }
   $("#killBtn").disabled = false; tick();
+};
+
+/* the veil's two buttons: ignore today, or act on the warning right now */
+let veilTier = "";
+$("#vIgnore").onclick = () => {
+  const t = veilTier, d = dayKey();
+  if (t === "quota") localStorage.setItem("dg_alarm_off", d);
+  else if (t === "yellow") localStorage.setItem("dg_ig_yellow", d);
+  else localStorage.setItem("dg_ig_cut", d);
+  if (t === "pending") post("/api/kill", {skip: true}).catch(e => toast("Couldn't skip today's cut: " + e.message, "err"));
+  stopAlarm();
+  toast(t === "pending" ? "The internet stays on until tomorrow." : "Ignored for today.");
+  veilTier = ""; $("#veil").hidden = true; tick();
+};
+$("#vAct").onclick = async () => {
+  const on = veilTier === "pending";
+  $("#vAct").disabled = true;
+  try {
+    await post("/api/kill", {on});
+    toast(on ? "Internet cut off." : "Internet restored.", on ? "err" : "");
+    if (on) sfx.cut(); else sfx.restore();
+  } catch (e) { toast("Couldn't: " + e.message, "err"); }
+  $("#vAct").disabled = false; tick();
 };
 $("#f_snd").checked = sfxOn();
 $("#f_snd").onchange = e => {
@@ -746,8 +861,15 @@ document.querySelectorAll(".nav").forEach(b => { b.onclick = () => go(b.dataset.
 go("main");
 
 async function tick() {
-  try { render(await (await fetch("/api/status", {cache: "no-store"})).json()); }
-  catch (e) { const c = $("#chip"); c.className = "chip warn"; c.textContent = "Can't reach DataGuard"; console.error(e); }
+  try {
+    const st = await (await fetch("/api/status", {cache: "no-store"})).json();
+    render(st);
+    const back = (st.update || {}).version !== window.__updFrom;  // the new build is answering now
+    if (window.__updating === 2 || (window.__updating === 1 && back)) { location.reload(); return; }
+  } catch (e) {
+    if (window.__updating === 1) window.__updating = 2;           // it went down: the restart is real
+    const c = $("#chip"); c.className = "chip warn"; c.textContent = "Can't reach DataGuard"; console.error(e);
+  }
   try { renderApps(await (await fetch("/api/apps", {cache: "no-store"})).json()); }
   catch (e) { console.error(e); }
   clearTimeout(timer);

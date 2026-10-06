@@ -228,6 +228,7 @@ class Store:
             skey = start.isoformat()
             plan = cfg["plan_gb"] * gb
             budget = plan * (1 - cfg["reserve_pct"] / 100.0)
+            reserve = plan - budget  # shown as part of the plan; the ring counts it as used from day one
             cyc = {k: v[0] + v[1] for k, v in self.days.items() if skey <= k <= tkey}
             counted = sum(cyc.values())
             offset = self.cal.get("offset", 0) if self.cal.get("cycle") == skey else 0
@@ -250,18 +251,20 @@ class Store:
 
             time_left = max((datetime.combine(end, datetime.min.time()) - now).total_seconds() / 86400, 0.0)
             projected = used + avg * time_left
-            remaining = budget - used
+            left_budget = budget - used  # the reserve is not spendable: the cycle ends when this hits zero
+            remaining = plan - used      # what the user has left of the plan as displayed
             run_out = days_early = None
-            if avg > 0 and remaining > 0 and projected > budget:
-                t = now + timedelta(days=remaining / avg)
+            if avg > 0 and left_budget > 0 and projected > budget:
+                t = now + timedelta(days=left_budget / avg)
                 run_out = t.date().isoformat()
                 days_early = max(1, (end - t.date()).days)
             return {
                 "now": now.isoformat(timespec="seconds"),
                 "cycle_start": skey, "cycle_end": end.isoformat(), "days_left": days_left,
-                "plan": plan, "budget": budget, "reserve_pct": cfg["reserve_pct"],
+                "plan": plan, "budget": budget, "reserve": reserve,
+                "reserve_pct": cfg["reserve_pct"],
                 "counted": counted, "offset": offset, "used": used, "remaining": remaining,
-                "pct": used / budget * 100 if budget else 0.0,
+                "pct": (used + reserve) / plan * 100 if plan else 0.0,
                 "today": today_used, "allowance": allowance,
                 "avg_daily": avg, "pace_reliable": reliable, "projected": projected,
                 "run_out": run_out, "days_early": days_early,

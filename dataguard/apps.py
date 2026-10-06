@@ -118,15 +118,17 @@ class AppStore:
 
 
 class AppTracker(threading.Thread):
-    """Sums each program's I/O delta every INTERVAL seconds while DataGuard runs, regardless of whether
-    the hotspot is being counted. Same Windows-only estimate as the 'who's using data' view."""
+    """Sums each program's I/O delta every INTERVAL seconds while DataGuard runs.
+    `allowed` says whether bytes are recorded - the dashboard passes the monitor's
+    "are we on the configured network" flag, so the Apps page follows the meter's rule."""
 
     INTERVAL = 15
     FLUSH_EVERY = 60
 
-    def __init__(self, store):
+    def __init__(self, store, allowed=None):
         super().__init__(name="dataguard-apps", daemon=True)
         self.store = store
+        self.allowed = allowed or (lambda: True)
         self.supported = IS_WIN
         self.err = ""
         self.base = {}      # pid -> (name, other_bytes) at the previous tick
@@ -158,6 +160,7 @@ class AppTracker(threading.Thread):
         self.store.flush(force=True)
 
     def tick(self):
+        record = self.allowed()  # off the configured network: track state, but record nothing
         try:
             pids = {c.pid for c in psutil.net_connections(kind="inet") if c.pid}
         except (psutil.AccessDenied, OSError):
@@ -178,7 +181,7 @@ class AppTracker(threading.Thread):
             prev = self.base.get(p.pid)
             if prev is not None and prev[0] == name and v >= prev[1]:
                 d = v - prev[1]
-                if d:
+                if d and record:
                     self.store.add(day, name, d)
                     gained += d
         self.base = cur

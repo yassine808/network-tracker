@@ -1,5 +1,6 @@
-- [] Make the shown GB modifiable in the main page, that 3gb upfront shouldnt be subscracted from total, but still calculated in the %
-- [] Removes internet if exceede too much, (special warning + ignore button)
-- [] do like a big blurry window to ignore warnings (all 3, yellow ,after quota and before the internet is cut)
-- [] All this should only be working if connected to a specific Network, if not then dont calculate anything
-- [] auto-updater searches in github releases then updates to last version
+- [x] Make the shown GB modifiable in the main page, that 3gb upfront shouldnt be subscracted from total, but still calculated in the %
+- [x] Removes internet if exceede too much, (special warning + ignore button)
+- [x] do like a big blurry window to ignore warnings (all 3, yellow ,after quota and before the internet is cut)
+- [x] All this should only be working if connected to a specific Network, if not then dont calculate anything
+- [x] auto-updater searches in github releases then updates to last version (only once to save internet) , it should check and show if it's the last version in the app
+- [x] add Ci github
