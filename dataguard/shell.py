@@ -104,14 +104,7 @@ def _dark_titlebar():
     try:
         from ctypes import wintypes
 
-        try:
-            import winreg
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
-                                r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as k:
-                light, _ = winreg.QueryValueEx(k, "AppsUseLightTheme")
-            dark = 0 if light else 1  # match the dashboard, which follows the system theme
-        except OSError:
-            dark = 1
+        dark = 1  # the dashboard is always navy-dark now, so keep the chrome dark
         u32 = _user32()
         hwnd = u32.FindWindowW(None, TITLE)
         if not hwnd:
