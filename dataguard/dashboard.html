@@ -32,6 +32,10 @@ body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--f);font-
 [data-p]{display:grid;gap:12px}
 [data-p][hidden]{display:none}
 #net{margin-top:auto;padding:12px 6px 0;display:grid;gap:6px;font-size:11.5px;line-height:1.45;color:var(--mute)}
+#netHdr{display:flex;align-items:center;gap:7px;min-width:0}
+#netHdr svg{width:17px;height:17px;flex:none;color:var(--ink);fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+#icoWifi circle{fill:currentColor;stroke:none}
+svg[hidden]{display:none}
 #netName{font-size:13px;font-weight:650;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #netSys{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font:600 12px var(--mono);color:var(--acc);font-variant-numeric:tabular-nums}
 #netSys .l{color:var(--mute);font-weight:500}
@@ -64,7 +68,8 @@ body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--f);font-
 h2{margin:0 0 6px;font-size:14px;font-weight:650;letter-spacing:-.005em}
 h3{margin:0 0 2px;font-size:13px;font-weight:650}
 .sub{color:var(--mute);font-size:13.5px}
-.nowsec .sub{font-size:14.5px;color:var(--acc)}
+.nowsec .sub{font-size:14.5px}
+.nowsec .sub b{color:var(--acc);font-weight:650}
 
 /* hero: the dial + the number you care about */
 .hero{display:grid;grid-template-columns:auto minmax(260px,1fr) minmax(200px,250px);gap:12px 22px;align-items:center;padding:14px 18px}
@@ -81,6 +86,9 @@ h3{margin:0 0 2px;font-size:13px;font-weight:650}
 .lead #rem:hover{border-color:var(--acc)}
 .lead #rem:focus{border-color:var(--acc)}
 .lead #remu{font:300 clamp(16px,2.5vw,22px)/1 var(--fd);color:var(--mute);font-style:normal}
+#remEdit{border:0;background:transparent;color:var(--mute);padding:3px;cursor:pointer;align-self:center;transition:color .12s}
+#remEdit:hover,#remEdit:focus-visible{color:var(--acc)}
+#remEdit svg{width:15px;height:15px;display:block}
 .lead small{display:block;color:var(--mute);font-size:13.5px;min-height:1.4em}
 .facts{display:grid;gap:9px;align-content:center}
 .facts>div{padding:0}
@@ -151,9 +159,14 @@ svg text{font-family:inherit}
 
 /* 30-day chart */
 #bars{width:100%;height:auto;display:block}
-.col{fill:var(--acc);opacity:.35}.col.today{opacity:1}
-.allow{stroke:var(--warn);stroke-width:1.2;stroke-dasharray:4 3}
-.axis{font-size:10px;fill:var(--mute)}
+.col{fill:var(--acc);opacity:.5}.col.over{fill:var(--bad);opacity:.8}.col.today{opacity:1}
+.allow{stroke:var(--acc);stroke-width:1.4;stroke-dasharray:5 4}
+.gl{stroke:var(--track);stroke-width:1}
+.gtxt{font:9.5px var(--mono);fill:var(--tick);text-anchor:end}
+.allowtxt{font:9.5px var(--mono);fill:var(--acc);font-weight:650;text-anchor:end}
+.axis{font:10px var(--mono);fill:var(--mute)}
+.limnote{font:11px var(--mono);color:var(--mute);margin-top:7px}
+.limnote b{color:var(--acc);font-weight:650}
 
 /* controls */
 button{font:inherit;font-size:14px;padding:8px 15px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;transition:border-color .15s,background .15s,color .15s,transform .12s}
@@ -231,7 +244,11 @@ input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
   <button type="button" class="nav" data-go="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 3.5v2.6M12 17.9v2.6M3.5 12h2.6M17.9 12h2.6M6 6l1.9 1.9M16.1 16.1 18 18M18 6l-1.9 1.9M7.9 16.1 6 18"/></svg>Settings</button>
   <button type="button" class="nav" data-go="apps"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>Apps</button>
   <div id="net">
-    <span id="netName"></span>
+    <div id="netHdr" title="">
+      <svg id="icoWifi" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="12.7" r="1.5"/><path d="M3.4 9.9a6.6 6.6 0 0 1 9.2 0"/><path d="M1 6.9a10.3 10.3 0 0 1 14 0"/></svg>
+      <svg id="icoWire" viewBox="0 0 16 16" aria-hidden="true" hidden><rect x="1.5" y="2.5" width="13" height="9" rx="1.6"/><path d="M8 11.5v2.2M5.4 13.7h5.2"/></svg>
+      <span id="netName"></span>
+    </div>
     <span id="netState" class="chip">Connecting&hellip;</span>
     <div id="netSys"><span class="l">CPU</span><b id="cpuV">-</b><span class="l">RAM</span><b id="ramV">-</b></div>
   </div>
@@ -245,7 +262,7 @@ input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
     <circle id="arc" class="arc" cx="60" cy="60" r="52" transform="rotate(-90 60 60)"/>
     <text id="pct" class="big" x="60" y="60" text-anchor="middle" dominant-baseline="central">-</text>
   </svg>
-  <div class="lead"><span id="remk">Left this cycle</span><div class="remrow"><input id="rem" type="number" step="0.01" inputmode="decimal" aria-label="Gigabytes left this cycle, negative if over plan"><i id="remu">GB</i></div><small id="remn"></small></div>
+  <div class="lead"><span id="remk">Left this cycle</span><div class="remrow"><input id="rem" type="number" step="0.01" inputmode="decimal" aria-label="Gigabytes left this cycle, negative if over plan"><i id="remu">GB</i><button type="button" id="remEdit" aria-label="Change gigabytes left this cycle" title="Change"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></div><small id="remn"></small></div>
   <div class="facts">
     <div><span>Used this cycle</span><b id="used">-</b>
       <small class="planline"><label for="planGb">plan</label><input id="planGb" type="number" min="1" max="100000" step="1" inputmode="decimal" aria-label="Data plan size in gigabytes"><span>GB</span></small></div>
@@ -291,7 +308,7 @@ input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
 </div>
 
 <div class="card strip lower">
-  <section><h2>Last 30 days</h2><svg id="bars" viewBox="0 0 520 100"></svg></section>
+  <section><h2>Last 30 days</h2><svg id="bars" viewBox="0 0 520 124" role="img" aria-label="Daily usage over the last 30 days against the daily limit"></svg><div class="limnote" id="limnote"></div></section>
   <section><h2>Pace</h2>
     <span class="tag" id="ptag">-</span>
     <p class="sub" id="pnote" style="margin:12px 0 0"></p></section>
@@ -472,23 +489,38 @@ function bars(hist, allow) {
   const first = !barsGrown;
   if (first) { barsGrown = true; el.classList.add("grow");
     setTimeout(() => el.classList.remove("grow"), 500 + hist.length * 14 + 700); }
-  const W = 520, H = 100, pad = 14, n = hist.length, y0 = H - pad, bw = W / n;
-  const top = Math.max(allow || 0, ...hist.map(h => h.b), 1) * 1.12;
-  hist.forEach((h, i) => {
-    const bh = h.b / top * (y0 - 4);
-    const r = svg("rect", {class: i === n - 1 ? "col today" : "col", x: (i * bw + 1.5).toFixed(1), y: (y0 - bh).toFixed(1),
-      width: Math.max(bw - 3, 1).toFixed(1), height: Math.max(bh, h.b > 0 ? 1 : 0).toFixed(1), rx: 2});
-    if (first) r.style.animationDelay = (i * 14) + "ms";
-    const t = svg("title", {}); t.textContent = dstr(h.d) + ": " + sz(h.b); r.appendChild(t); el.appendChild(r);
+  const W = 520, H = 124, padL = 46, padR = 6, padT = 12, n = hist.length,
+    y0 = H - 15, bw = (W - padL - padR) / n;
+  const top = Math.max(allow || 0, ...hist.map(h => h.b), 1) * 1.15;
+  const gy = v => y0 - (v / top) * (y0 - padT);
+  /* scale: a labelled baseline and ceiling, then the daily limit as a dashed line */
+  [[0, "0"], [top, sz(top)]].forEach(([v, lab]) => {
+    el.appendChild(svg("line", {class: "gl", x1: padL, x2: W - padR, y1: gy(v).toFixed(1), y2: gy(v).toFixed(1)}));
+    const t = svg("text", {class: "gtxt", x: padL - 6, y: (gy(v) + 3).toFixed(1)});
+    t.textContent = lab; el.appendChild(t);
   });
   if (allow > 0) {
-    const y = (y0 - allow / top * (y0 - 4)).toFixed(1);
-    el.appendChild(svg("line", {class: "allow", x1: 0, x2: W, y1: y, y2: y}));
+    const y = gy(allow).toFixed(1);
+    el.appendChild(svg("line", {class: "allow", x1: padL, x2: W - padR, y1: y, y2: y}));
+    const t = svg("text", {class: "allowtxt", x: W - padR, y: (gy(allow) - 4).toFixed(1)});
+    t.textContent = sz(allow) + "/day limit"; el.appendChild(t);
   }
-  [[0, "start", 0], [Math.floor(n / 2), "middle", W / 2], [n - 1, "end", W]].forEach(([i, a, x]) => {
-    const t = svg("text", {class: "axis", x: x, y: H - 3, "text-anchor": a});
-    t.textContent = dstr(hist[i].d); el.appendChild(t);
+  hist.forEach((h, i) => {
+    const bh = h.b / top * (y0 - padT);
+    const cls = ["col", i === n - 1 ? "today" : "", allow > 0 && h.b > allow ? "over" : ""].filter(Boolean).join(" ");
+    const r = svg("rect", {class: cls, x: (padL + i * bw + 1).toFixed(1), y: (y0 - bh).toFixed(1),
+      width: Math.max(bw - 2, 1).toFixed(1), height: Math.max(bh, h.b > 0 ? 1.5 : 0).toFixed(1), rx: 1.5});
+    if (first) r.style.animationDelay = (i * 14) + "ms";
+    const t = svg("title", {});
+    t.textContent = dstr(h.d) + ": " + sz(h.b) + (allow > 0 ? (h.b > allow ? " (over limit)" : " (within limit)") : "");
+    r.appendChild(t); el.appendChild(r);
   });
+  const xAt = i => padL + i * bw + bw / 2;
+  [[0, "start", padL + 1], [Math.floor((n - 1) / 2), "middle", xAt(Math.floor((n - 1) / 2))], [n - 1, "end", W - padR]]
+    .forEach(([i, a, x]) => {
+      const t = svg("text", {class: "axis", x: x, y: H - 3, "text-anchor": a});
+      t.textContent = dstr(hist[i].d); el.appendChild(t);
+    });
 }
 
 function fillForm(s) {
@@ -534,7 +566,12 @@ function render(s) {
   txt("#days", String(s.days_left));
   txt("#renew", "renews " + dstr(s.cycle_end));
 
-  txt("#netName", s.ssid || s.iface || "?");
+  const wifi = !!s.ssid || /^wi-?fi/i.test(s.iface || "");
+  $("#icoWifi").toggleAttribute("hidden", !wifi);
+  $("#icoWire").toggleAttribute("hidden", wifi);
+  $("#netHdr").title = wifi ? (s.ssid || "") : (s.iface || "");
+  $("#netName").toggleAttribute("hidden", !wifi);
+  txt("#netName", wifi ? (s.ssid || s.iface || "?") : "");
   const st = $("#netState");
   if (s.err) { st.className = "chip warn"; st.textContent = "Error: " + s.err; }
   else if (s.counting === null) { st.className = "chip"; st.textContent = "Starting\u2026"; }
@@ -546,21 +583,22 @@ function render(s) {
   txt("#today", sz(s.today));
   const r = s.allowance > 0 ? s.today / s.allowance : (s.today > 0 ? 2 : 0);
   const tb = $("#tbar"); tb.style.width = Math.min(100, r * 100) + "%"; tb.style.background = tone(r * 100);
-  txt("#tnote", s.allowance <= 0 ? "No daily quota left this cycle"
-    : s.today <= s.allowance ? sz(s.allowance - s.today) + " left of today's " + gb(s.allowance) + " quota"
-    : "Over today's " + gb(s.allowance) + " quota by " + sz(s.today - s.allowance));
+  $("#tnote").innerHTML = s.allowance <= 0 ? "No daily quota left this cycle"
+    : s.today <= s.allowance ? "<b>" + sz(s.allowance - s.today) + "</b> left of today's <b>" + gb(s.allowance) + "</b> quota"
+    : "Over today's <b>" + gb(s.allowance) + "</b> quota by <b>" + sz(s.today - s.allowance) + "</b>";
 
   const tag = $("#ptag"), note = $("#pnote");
-  if (s.pct >= 100) { tag.className = "tag bad"; tag.textContent = "Over plan"; note.textContent = sz(s.used) + " used of your " + gb(s.plan) + " plan, " + s.days_left + " days to go. Keep to essentials."; }
-  else if (s.run_out) { tag.className = "tag bad"; tag.textContent = "Over pace"; note.textContent = "At ~" + gb(s.avg_daily) + "/day you'd run out around " + dstr(s.run_out) + ", " + s.days_early + " days early. Aim for " + gb(s.allowance) + "/day."; }
-  else if (s.pace_reliable) { tag.className = "tag ok"; tag.textContent = "On track"; note.textContent = "At ~" + gb(s.avg_daily) + "/day you'll finish the cycle near " + gb(s.projected) + " (" + Math.round(100 * (s.projected + (s.reserve || 0)) / s.plan) + "% of plan)."; }
-  else { tag.className = "tag"; tag.textContent = "Learning"; note.textContent = "Needs a couple of full days of data before it can predict your pace."; }
+  if (s.pct >= 100) { tag.className = "tag bad"; tag.textContent = "Over plan"; note.textContent = sz(s.used) + " used \u00b7 " + s.days_left + " days to go"; }
+  else if (s.run_out) { tag.className = "tag bad"; tag.textContent = "Over pace"; note.textContent = "Runs out ~" + dstr(s.run_out) + " \u00b7 aim for " + gb(s.allowance) + "/day"; }
+  else if (s.pace_reliable) { tag.className = "tag ok"; tag.textContent = "On track"; note.textContent = gb(s.avg_daily) + "/day \u00b7 " + gb(Math.max(0, s.budget - s.projected)) + " spare at renewal"; }
+  else { tag.className = "tag"; tag.textContent = "Learning"; note.textContent = "Needs 2 full days of data to predict"; }
 
   txt("#down", sz(s.down) + "/s"); txt("#up", sz(s.up) + "/s");
   txt("#nc", s.counting === false ? "Not counted on this network" : "");
   spark(s.series_down, s.series_up);
   $(".live").classList.add("in");
   bars(s.history, s.allowance);
+  $("#limnote").innerHTML = "<b>" + gb(Math.max(0, s.budget - s.used)) + "</b> usable left of cycle (<b>" + gb(s.reserve) + "</b> reserve held back)";
 
   /* chime once per day when the allowance hits 75%; alarm every 30 s at 100% until ignored */
   const dk = dayKey(), over = s.pct >= 100;
@@ -791,6 +829,7 @@ $("#rem").onfocus = () => {
   fitRem();
   el.select();
 };
+$("#remEdit").onclick = () => $("#rem").focus();
 $("#rem").oninput = fitRem;
 $("#rem").onkeydown = e => {
   if (e.key === "Enter") { e.preventDefault(); e.target.blur(); }
