@@ -53,6 +53,12 @@ jobs:
           mkdir -p dist
           git archive --format=zip -o "dist/dataguard-${GITHUB_REF_NAME}.zip" HEAD dataguard dataguard.py
           python -c "import sys, zipfile; n = zipfile.ZipFile(sys.argv[1]).namelist(); assert 'dataguard.py' in n and 'dataguard/__init__.py' in n and 'dataguard/dashboard.html' in n, n; print(len(n), 'files')" "dist/dataguard-${GITHUB_REF_NAME}.zip"
+      - name: Build the setup.exe
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          ./installer/build.ps1 -Version $env:GITHUB_REF_NAME -Python python
       - name: Publish the release
         shell: bash
         env:
@@ -60,5 +66,6 @@ jobs:
         run: >
           gh release create "$GITHUB_REF_NAME"
           "dist/dataguard-${GITHUB_REF_NAME}.zip"
+          "dist/DataGuard-Setup-${GITHUB_REF_NAME}.exe"
           --title "$GITHUB_REF_NAME"
           --generate-notes
