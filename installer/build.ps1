@@ -33,10 +33,10 @@ if (-not (Select-String -Path (Join-Path $stage "python39._pth") -Pattern 'site-
     Add-Content (Join-Path $stage "python39._pth") "Lib\site-packages`r`n"
 }
 
-# 4. psutil (the one runtime dependency) straight into site-packages
+# 4. runtime deps straight into site-packages: psutil (usage) + tray/window extras (shell.py)
 $sp = Join-Path $stage "Lib\site-packages"
 New-Item -ItemType Directory -Force -Path $sp | Out-Null
-& $Python -m pip install --quiet --target $sp psutil
+& $Python -m pip install --quiet --target $sp psutil pystray pillow pywebview
 
 # 5. the app itself
 Copy-Item (Join-Path $root "dataguard.py") $stage
@@ -45,7 +45,7 @@ $pyc = @(Get-ChildItem $stage -Recurse -Directory -Filter "__pycache__")
 if ($pyc) { $pyc | Remove-Item -Recurse -Force }
 
 # 6. the staged app must actually run before we ship it
-& (Join-Path $stage "python.exe") -c "import psutil, dataguard; print('payload ok', psutil.__version__, dataguard.__version__)"
+& (Join-Path $stage "python.exe") -c "import psutil, pystray, PIL, webview, dataguard; print('payload ok', psutil.__version__, dataguard.__version__)"
 if ($LASTEXITCODE -ne 0) { throw "payload smoke test failed" }
 
 # 7. compile the installer
