@@ -390,7 +390,7 @@ const toast = (t, kind) => {
 /* ---- sounds: warm bell chime at 75% of the day's allowance, urgent alarm at 100%, action feedback ---- */
 const dayKey = () => { const d = new Date();
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
-let ac = null, master = null, alarmTimer = 0, was75 = false;
+let ac = null, master = null, alarmTimer = 0;
 const sfxOn = () => localStorage.getItem("dg_snd") !== "0";   // sounds on unless turned off in Settings
 const actx = () => {
   if (!ac) { ac = new (window.AudioContext || window.webkitAudioContext)();
@@ -493,7 +493,9 @@ function fillForm(s) {
   $("#f_ssid").value = c.ssid; $("#f_alerts").value = c.alert_pcts.join(", "); $("#f_burst").value = c.burst_mb_per_min;
   $("#f_bin").checked = c.binary_gb; $("#f_notify").checked = c.notify;
   const sel = $("#f_iface"); sel.replaceChildren();
-  ["auto"].concat(s.ifaces).forEach(n => sel.appendChild(mk("option", "", n === "auto" ? "auto (" + (s.iface || "?") + ")" : n)));
+  const names = ["auto"].concat(s.ifaces);
+  if (c.iface && !names.includes(c.iface)) names.push(c.iface);  // unplugged adapter: keep it selectable so Save can't silently fall back to auto
+  names.forEach(n => sel.appendChild(mk("option", "", n === "auto" ? "auto (" + (s.iface || "?") + ")" : n)));
   Array.from(sel.options).forEach(o => { o.value = o.textContent.startsWith("auto (") ? "auto" : o.textContent; });
   sel.value = c.iface; filled = true;
 }
@@ -553,10 +555,12 @@ function render(s) {
     ul.appendChild(li);
   });
 
-  /* chime once when the day's allowance hits 75%; alarm every 30 s at 100% until ignored */
+  /* chime once per day when the allowance hits 75%; alarm every 30 s at 100% until ignored */
   const dk = dayKey(), over = s.pct >= 100;
-  if (s.pct >= 75 && !over && !was75) chime();
-  was75 = s.pct >= 75;
+  if (s.pct >= 75 && !over && localStorage.getItem("dg_chime_" + dk) !== "1") {
+    chime();
+    localStorage.setItem("dg_chime_" + dk, "1");
+  }
   const silent = localStorage.getItem("dg_alarm_off") === dk;
   if (over && !silent) startAlarm(); else stopAlarm();
 

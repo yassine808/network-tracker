@@ -2,6 +2,7 @@
 strict-SSID gating and dashboard syntax. Run: python tests/smoke.py (exit 0 = all good)."""
 
 import io
+import json
 import re
 import shutil
 import subprocess
@@ -178,6 +179,55 @@ def test_monitor(tmp):
         st.conn.close()
 
 
+def test_calibrate_cli(tmp):
+    """The CLI rejects the same out-of-range figures the dashboard API rejects, before any call."""
+    from dataguard import cli as cli_mod
+
+    st = Store(tmp)
+    orig_api = cli_mod.api
+    try:
+        for bad in (-1, 100001):
+            try:
+                cli_mod.cmd_calibrate(st, bad)
+                check(False, "cli: out-of-range calibrate rejected", str(bad))
+            except SystemExit as e:
+                check(bool(str(e)), "cli: out-of-range calibrate rejected", str(bad))
+        cli_mod.api = lambda *a, **k: None  # offline: the local path must still work
+        cli_mod.cmd_calibrate(st, 12.5)
+        check(abs(st.summary()["used"] - 12.5 * st.gb) <= 1, "cli: a valid figure still calibrates",
+              str(st.summary()["used"]))
+    finally:
+        cli_mod.api = orig_api
+        st.conn.close()
+
+
+def test_load_repairs(tmp):
+    """One invalid stored setting falls back alone; every other setting survives and the row is fixed."""
+    st = Store(tmp)
+    try:
+        st.set_config({"plan_gb": 120, "ssid": "HOTSPOT", "notify": False})
+        with st.conn:  # simulate an out-of-range value reaching the database (a downgrade, a hand edit)
+            st.conn.execute("UPDATE settings SET value = '999999' WHERE key = 'plan_gb'")
+    finally:
+        st.conn.close()
+    st2 = Store(tmp)
+    try:
+        check(st2.cfg["ssid"] == "HOTSPOT", "load: valid settings survive a bad neighbour",
+              repr(st2.cfg["ssid"]))
+        check(st2.cfg["plan_gb"] == 60, "load: only the invalid key falls back to default",
+              str(st2.cfg["plan_gb"]))
+        check(st2.cfg["notify"] is False, "load: other types survive too", str(st2.cfg["notify"]))
+    finally:
+        st2.conn.close()
+    st3 = Store(tmp)
+    try:
+        row = st3.conn.execute("SELECT value FROM settings WHERE key = 'plan_gb'").fetchone()
+        check(row is not None and json.loads(row[0]) == 60, "load: the repaired value is written back",
+              str(row))
+    finally:
+        st3.conn.close()
+
+
 def test_dashboard_js(tmp):
     """The dashboard's inline script parses, so a typo can never ship."""
     html = (ROOT / "dataguard" / "dashboard.html").read_text("utf-8")
@@ -207,6 +257,10 @@ def main():
         test_unpack(tmp / "zip")
         print("monitor")
         test_monitor(tmp / "mon")
+        print("cli calibrate")
+        test_calibrate_cli(tmp / "cli")
+        print("settings repair")
+        test_load_repairs(tmp / "repair")
         print("dashboard")
         test_dashboard_js(tmp)
     finally:

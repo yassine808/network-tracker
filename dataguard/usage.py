@@ -117,11 +117,29 @@ class Store:
         with self.lock:
             rows = self.conn.execute("SELECT key, value FROM settings").fetchall()
             if rows:
+                raw, repaired = {}, False
+                for k, v in rows:
+                    try:
+                        raw[k] = json.loads(v)
+                    except ValueError:
+                        repaired = True  # unreadable row: the default takes over for that key only
                 try:
-                    self.cfg = clean_cfg({k: json.loads(v) for k, v in rows}, DEFAULTS)
-                except ValueError as e:
-                    logging.warning("stored settings ignored (%s); using defaults", e)
-                    self.cfg = dict(DEFAULTS)
+                    self.cfg = clean_cfg(raw, DEFAULTS)
+                except ValueError:
+                    # one invalid value must not reset the rest: keep every key that still validates
+                    good = {}
+                    for k, v in raw.items():
+                        try:
+                            clean_cfg({k: v}, DEFAULTS)
+                        except ValueError as e:
+                            logging.warning("stored setting %s ignored (%s); using default", k, e)
+                            repaired = True
+                        else:
+                            good[k] = v
+                    self.cfg = clean_cfg(good, DEFAULTS)
+                if repaired:
+                    with self.conn:
+                        self._put_settings(self.cfg)
             else:
                 self.cfg = dict(DEFAULTS)
                 with self.conn:  # fresh install: persist the defaults so they are inspectable

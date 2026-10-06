@@ -150,6 +150,8 @@ def cut_internet():
     """Block all outbound internet, keeping loopback and the local network usable (the dashboard
     and the printer keep working). (ok, message)."""
     return _apply([
+        ["netsh", "advfirewall", "firewall", "delete", "rule", "name=" + ALLOW_RULE],
+        ["netsh", "advfirewall", "firewall", "delete", "rule", "name=" + CUT_RULE],
         ["netsh", "advfirewall", "firewall", "add", "rule", "name=" + ALLOW_RULE,
          "dir=out", "action=allow", "remoteip=127.0.0.1,localsubnet"],
         ["netsh", "advfirewall", "firewall", "add", "rule", "name=" + CUT_RULE,

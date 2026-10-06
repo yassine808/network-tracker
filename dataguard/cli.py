@@ -146,6 +146,8 @@ def cmd_status(store):
 
 
 def cmd_calibrate(store, gb_used):
+    if not 0 <= gb_used <= 100000:
+        sys.exit("calibrate: gb must be a number from 0 up")
     if api(store.cfg["port"], "/api/calibrate", {"gb": gb_used}) is None:  # not running: edit the files directly
         store.calibrate(gb_used)
         store.flush(force=True)
