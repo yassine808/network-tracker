@@ -2,3 +2,4 @@
 - [] Removes internet if exceede too much, (special warning + ignore button)
 - [] do like a big blurry window to ignore warnings (all 3, yellow ,after quota and before the internet is cut)
 - [] All this should only be working if connected to a specific Network, if not then dont calculate anything
+- [] auto-updater searches in github releases then updates to last version
