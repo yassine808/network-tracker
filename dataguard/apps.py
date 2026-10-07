@@ -147,24 +147,55 @@ def _service_path(name):
 
 
 def _suite_members(exe):
-    """[(name, path)] for every program of the same security suite as `exe` (its folder and two
-    levels below). Avast talks to the internet from many processes (AvastSvc, AvastUI, instup,
-    aswEngSrv, wsc_proxy...); blocking just one leaves the others online."""
-    if not exe or not SUITE.search(exe):
+    """[(name, path)] for every program of the same security suite as `exe`: the vendor's whole
+    folder in Program Files and in ProgramData (installer/updater copies live there).
+    Avast talks to the internet from many processes; blocking a few leaves the rest online."""
+    m = SUITE.search(exe or "")
+    if not m:
         return []
-    root, out = os.path.dirname(exe), {}
-    try:
-        for dp, dn, fn in os.walk(root):
-            if dp.count(os.sep) - root.count(os.sep) >= 2:
-                dn[:] = []
-            for f in fn:
-                if f.lower().endswith(".exe") and "unins" not in f.lower():
-                    out.setdefault(f, os.path.join(dp, f))
-            if len(out) >= 25:
-                break
-    except OSError:
-        pass
-    return list(out.items())
+    roots = [exe[:m.end(1)]]
+    pd = os.environ.get("PROGRAMDATA")
+    if pd:
+        roots.append(os.path.join(pd, m.group(1)))
+    out = {}
+    for root in roots:
+        if not os.path.isdir(root):
+            continue
+        try:
+            for dp, dn, fn in os.walk(root):
+                if dp.count(os.sep) - root.count(os.sep) >= 4:
+                    dn[:] = []
+                for f in fn:
+                    if f.lower().endswith(".exe") and "unins" not in f.lower():
+                        out.setdefault(f, os.path.join(dp, f))
+        except OSError:
+            pass
+    return list(out.items())[:50]
+
+
+def _leak_check(delay=25):
+    """Log, a bit after a block, which Avast-related programs still hold connections."""
+    def run():
+        time.sleep(delay)
+        try:
+            rows = {}
+            for c in psutil.net_connections(kind="inet"):
+                if not c.pid or not c.raddr or c.status != "ESTABLISHED":
+                    continue
+                if c.raddr.ip.startswith("127.") or c.raddr.ip == "::1":
+                    continue
+                try:
+                    p = psutil.Process(c.pid)
+                    n, ex = p.name(), p.exe()
+                except psutil.Error:
+                    n, ex = "pid %d" % c.pid, ""
+                if c.pid == 4 or "avast" in (ex or "").lower() or n.lower().startswith(("avast", "asw")):
+                    rows.setdefault("%s [%s]" % (n, ex or "?"), []).append("%s:%s" % (c.raddr.ip, c.raddr.port))
+            logging.info("firewall: %ds after the block, open Avast/System connections: %s", delay,
+                         {k: v[:4] for k, v in rows.items()} or "none")
+        except Exception as e:
+            logging.info("firewall: leak check failed: %s", e)
+    threading.Thread(target=run, daemon=True, name="dataguard-leakcheck").start()
 
 
 HELPERS = {"msedgewebview2.exe"}  # their network traffic belongs to the host app (WhatsApp, Teams...)
@@ -528,6 +559,7 @@ class AppTracker(threading.Thread):
                     for n, (ok, msg) in res.items():
                         if not ok:
                             logging.warning("firewall: %s: %s", n, msg)
+                    _leak_check()
                     if not res.get(name, (False, ""))[0]:
                         return False, res.get(name, (False, "could not block"))[1] or "could not block"
         else:
@@ -569,6 +601,8 @@ class AppTracker(threading.Thread):
         for name, ok, err in firewall.sync_app_blocks(list(items.values())):
             if not ok:
                 logging.warning("firewall: %s: %s", name, err)
+        if gate and len(items) > 1:
+            _leak_check()
 
     def run(self):
         if not self.supported:
