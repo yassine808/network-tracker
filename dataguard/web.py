@@ -26,6 +26,7 @@ class Server(ThreadingHTTPServer):
 class Handler(BaseHTTPRequestHandler):
     mon = None     # set before serving
     tracker = None  # set before serving
+    opener = None  # set by shell.run: shows the app window (a second launch asks for it)
 
     def log_message(self, *args):
         pass
@@ -118,7 +119,13 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(n) or b"{}")
             if not isinstance(body, dict):
                 raise ValueError("expected a JSON object")
-            path, st = self.path.split("?", 1)[0], self.mon.store
+            path = self.path.split("?", 1)[0]
+            if path == "/api/open":  # a second `run --open`: raise this copy's window, not a browser tab
+                if self.opener is None:
+                    raise ValueError("this copy has no window to show")
+                type(self).opener()  # via the class: a plain function stored here would bind to self
+                return self._json({"ok": True})
+            st = self.mon.store
             if path == "/api/config":
                 st.set_config(body)
                 self.mon.ssid_t = 0.0  # re-read the Wi-Fi name right away

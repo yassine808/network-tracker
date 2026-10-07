@@ -134,7 +134,7 @@ python dataguard.py [global options] <command>
 | `status` | Print a summary in the terminal (live if the app is running, saved data otherwise). |
 | `calibrate <gb>` | "My carrier says I've used X GB this cycle" — sets an offset so DataGuard matches. |
 | `ifaces` | List network interfaces; `*` marks the one being counted. |
-| `startup install` | Windows: start hidden at every login (writes a `.vbs` into the Startup folder). |
+| `startup install` | Windows: start hidden at every login (writes a `DataGuard` value under `HKCU\...\CurrentVersion\Run`). |
 | `startup remove` | Undo `startup install`. |
 
 Global option: `--home <folder>` or env `DATAGUARD_HOME` — put settings and history somewhere else
@@ -276,10 +276,10 @@ flowchart TD
     B --> C{"command?"}
     C -->|run| D["setup_logging → Store(home)<br/>open SQLite, load settings"]
     C -->|status / calibrate / ifaces| X1["Open Store, do the work, exit"]
-    C -->|startup install/remove| X2["Write or delete<br/>Startup\\DataGuard.vbs"]
+    C -->|startup install/remove| X2["Write or delete the<br/>HKCU Run\\DataGuard value"]
 
     D --> E{"port free?"}
-    E -->|no| F["Print 'already running',<br/>open dashboard, exit 0"]
+    E -->|no| F["Print 'already running',<br/>ask it to raise its window<br/>(browser if it can't), exit 0"]
     E -->|yes| G["Start HTTP server thread<br/>(127.0.0.1:8787)"]
     G --> H["Start AppTracker thread<br/>(re-apply remembered blocks)"]
     H --> I["Start Monitor thread"]
@@ -543,7 +543,7 @@ verify the tag equals `__version__`, build the zip and the setup.exe, publish a 
 
 | Symptom | Cause / fix |
 |---------|-------------|
-| "Port 8787 is busy — DataGuard is probably already running" | It is. Open `http://127.0.0.1:8787`, or change the port in Settings. |
+| "Port 8787 is busy — DataGuard is probably already running" | It is. The new copy asks it to raise its window; open `http://127.0.0.1:8787` yourself, or change the port in Settings. |
 | Shows **"Not counted on this network"** | The current Wi-Fi name doesn't match the configured SSID. Fix it with the pencil in the header, or clear it to count every interface. |
 | Usage looks too low | Your hotspot name isn't set, or the wrong interface is selected — check `python dataguard.py ifaces` (`*` marks what's counted). |
 | DataGuard disagrees with the carrier | The carrier also counts your phone's own traffic. `python dataguard.py calibrate <gb>` every few days. |

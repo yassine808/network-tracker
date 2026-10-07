@@ -172,6 +172,9 @@ def run(url, open_now=False):
             return
         _focus()
 
+    from .web import Handler
+    Handler.opener = open_win  # a second `run --open` POSTs /api/open instead of opening a browser
+
     def exit_app(icon, item):
         quitting.set()  # first: the closing handler checks this before parking in the tray
         opened.set()

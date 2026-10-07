@@ -22,7 +22,6 @@ UninstallDisplayName=DataGuard
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "autostart"; Description: "Start DataGuard automatically when I sign in to Windows"; GroupDescription: "When Windows starts:"; Flags: checkedonce
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
 
 [Files]
@@ -33,7 +32,8 @@ Name: "{group}\DataGuard"; Filename: "{app}\pythonw.exe"; Parameters: """{app}\d
 Name: "{userdesktop}\DataGuard"; Filename: "{app}\pythonw.exe"; Parameters: """{app}\dataguard.py"" run --open"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\python.exe"; Parameters: """{app}\dataguard.py"" startup install"; WorkingDir: "{app}"; Tasks: autostart; Flags: runhidden; StatusMsg: "Setting up auto-start..."
+; autostart is not optional: register in HKCU Run, no checkbox
+Filename: "{app}\python.exe"; Parameters: """{app}\dataguard.py"" startup install"; WorkingDir: "{app}"; Flags: runhidden; StatusMsg: "Setting up auto-start..."
 Filename: "{app}\pythonw.exe"; Parameters: """{app}\dataguard.py"" run --open"; WorkingDir: "{app}"; Description: "Start DataGuard now"; Flags: postinstall nowait skipifsilent
 
 [UninstallRun]

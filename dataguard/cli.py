@@ -24,6 +24,8 @@ from .web import Handler, Server
 
 ENTRY_SCRIPT = Path(__file__).resolve().parents[1] / "dataguard.py"  # what startup must launch
 LOG_CAP = 3 * 1024 * 1024  # dataguard.log never grows past this
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"  # where Windows keeps logon apps
+RUN_NAME = "DataGuard"
 
 
 class SmallLog(RotatingFileHandler):
@@ -68,6 +70,19 @@ def api(port, path, payload=None):
         sys.exit(f"DataGuard says: {reason}")
     except (URLError, OSError, ValueError):
         return None
+
+
+def _ask_open(port):
+    """A second `run --open`: ask the copy that owns the port to raise its window.
+    True = it did. False = fall back to the browser (old build, browser-mode copy,
+    or some other app owns the port)."""
+    req = Request(f"http://127.0.0.1:{port}/api/open", data=b"{}",
+                  headers={"Content-Type": "application/json"})
+    try:
+        with urlopen(req, timeout=5) as r:
+            return bool(json.loads(r.read()).get("ok"))
+    except (HTTPError, URLError, OSError, ValueError):
+        return False
 
 
 def print_status(s, running):
@@ -120,8 +135,8 @@ def cmd_run(args, home):
         except OSError:
             if attempt == tries - 1:
                 print(f"Port {port} is busy - DataGuard is probably already running: {url}")
-                if args.open:
-                    webbrowser.open(url)
+                if args.open and not _ask_open(port):
+                    webbrowser.open(url)  # the running copy could not show a window
                 return 0
             time.sleep(0.75)
     tracker = AppTracker(AppStore(home), allowed=lambda: bool(mon.counting))  # only on the configured network
@@ -190,17 +205,25 @@ def cmd_startup(action):
         print("Auto-start is built in for Windows only. On macOS add this to Login Items; on Linux use a "
               f"systemd user service:  {sys.executable} {ENTRY_SCRIPT} run")
         return
-    path = (Path(os.environ["APPDATA"]) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
-            / "DataGuard.vbs")
+    import winreg
+    # every Windows app (Steam, Discord...) autostarts from HKCU's Run key; pre-1.2 builds
+    # used a Startup-folder .vbs instead — clear it so an upgrade never launches twice
+    legacy = (Path(os.environ["APPDATA"]) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+              / "Startup" / "DataGuard.vbs")
+    legacy.unlink(missing_ok=True)
     if action == "remove":
-        path.unlink(missing_ok=True)
-        print("Removed from startup.")
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+                winreg.DeleteValue(key, RUN_NAME)
+            print("Removed from startup.")
+        except FileNotFoundError:
+            print("DataGuard is not in startup.")
         return
     exe = Path(sys.executable)
     exe = exe.with_name("pythonw.exe") if exe.with_name("pythonw.exe").exists() else exe
-    script = ENTRY_SCRIPT
-    path.write_text(f'CreateObject("WScript.Shell").Run """{exe}"" ""{script}"" run", 0, False\r\n')
-    print(f"DataGuard will start hidden at every login.\nStart it now by double-clicking: {path}")
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+        winreg.SetValueEx(key, RUN_NAME, 0, winreg.REG_SZ, f'"{exe}" "{ENTRY_SCRIPT}" run')
+    print("DataGuard will start hidden at every login.")
 
 
 def main(argv=None):

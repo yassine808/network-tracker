@@ -41,14 +41,16 @@ New-Item -ItemType Directory -Force -Path $sp | Out-Null
 # 5. the app itself
 Copy-Item (Join-Path $root "dataguard.py") $stage
 Copy-Item (Join-Path $root "dataguard") $stage -Recurse
-$pyc = @(Get-ChildItem $stage -Recurse -Directory -Filter "__pycache__")
-if ($pyc) { $pyc | Remove-Item -Recurse -Force }
 
 # 6. the staged app must actually run before we ship it
 & (Join-Path $stage "python.exe") -c "import psutil, pystray, PIL, webview, dataguard; print('payload ok', psutil.__version__, dataguard.__version__)"
 if ($LASTEXITCODE -ne 0) { throw "payload smoke test failed" }
 
-# 7. compile the installer
+# 7. drop the bytecode the smoke test just wrote: it is runtime-generated, never shipped
+$pyc = @(Get-ChildItem $stage -Recurse -Directory -Filter "__pycache__")
+if ($pyc) { $pyc | Remove-Item -Recurse -Force }
+
+# 8. compile the installer
 $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
           "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
           "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") |

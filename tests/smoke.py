@@ -7,10 +7,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -181,6 +184,34 @@ def test_dashboard_js(tmp):
     check(p.returncode == 0, "dashboard: inline script parses", (p.stderr or p.stdout)[:400])
 
 
+def test_open_route():
+    """A second `run --open` reaches the running copy's window hook; without one it says so."""
+    from dataguard.web import Handler, Server
+
+    fired = []
+    Handler.opener = lambda: fired.append(1)
+    srv = Server(("127.0.0.1", 0), Handler)
+    port = srv.server_address[1]
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    req = Request(f"http://127.0.0.1:{port}/api/open", data=b"{}",
+                  headers={"Content-Type": "application/json"})
+    try:
+        with urlopen(req, timeout=5) as r:
+            out = json.loads(r.read())
+        check(out.get("ok") is True and fired == [1], "web: /api/open raises the window", str(out))
+        Handler.opener = None  # browser-mode copy: it must send the caller to the browser instead
+        try:
+            urlopen(req, timeout=5)
+            check(False, "web: /api/open says so when there is no window")
+        except HTTPError as e:
+            body = e.read().decode("utf-8", "replace")
+            check("no window" in body, "web: /api/open says so when there is no window", body)
+    finally:
+        Handler.opener = None
+        srv.shutdown()
+        srv.server_close()
+
+
 def main():
     tmp = Path(tempfile.mkdtemp(prefix="dg-smoke-"))
     try:
@@ -198,6 +229,8 @@ def main():
         test_load_repairs(tmp / "repair")
         print("dashboard")
         test_dashboard_js(tmp)
+        print("open route")
+        test_open_route()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     if FAILS:
