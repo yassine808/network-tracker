@@ -10,7 +10,7 @@
 :root{color-scheme:dark;
 --bg:#0e0f12;--panel:#15171b;--panel2:#1a1d22;--line:#24272e;--ink:#eceef2;--mute:#8b919c;--faint:#5b616c;
 --acc:#7c9cff;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--down:#38bdf8;--up:#c084fc;
---f:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif;
+--f:"Space Grotesk","Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif;
 --mono:ui-monospace,"Cascadia Mono",Consolas,Menlo,monospace}
 *{box-sizing:border-box}
 html,body{height:100%}
@@ -171,15 +171,13 @@ input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
 .cards input[type=checkbox]{accent-color:var(--c)}
 .cards button:not(.danger):hover{border-color:var(--c);color:var(--c)}
 .cards .panel.dng{border-color:var(--line);border-top-color:var(--bad)}
-.setfoot{text-align:center;margin:0;font-size:12px}
 
 .cards .panel{padding:12px 14px}
 .cards h2{margin-bottom:8px}
 .cards .form{gap:8px;margin:0}
 [data-p="settings"]{gap:10px}
 .fonts{display:flex;flex-wrap:wrap;gap:8px}
-.fchip{display:inline-flex;align-items:baseline;gap:8px;padding:7px 14px;border-radius:10px;font-size:14px}
-.fchip small{font-size:11px;color:var(--mute);font-family:var(--f)}
+.fchip{display:inline-flex;align-items:baseline;padding:7px 14px;border-radius:10px;font-size:14px}
 .fchip.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 16%,var(--panel2))}
 @media(max-width:760px){.cards .panel{grid-column:span 6!important}}
 .form.two,.cards .two{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end}
@@ -406,7 +404,6 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
     <section class="panel s6" style="--c:var(--ok)"><h2>Font</h2>
       <div class="fonts" id="fonts"></div></section>
   </div>
-  <p class="sub setfoot">DataGuard <b id="verNum">v?</b> &middot; shortcuts: 1 Overview, 2 Apps, 3 Settings</p>
 </div>
 
 </div></main>
@@ -688,7 +685,6 @@ function render(s) {
   killActive = !!k.active;
   $("#killBox").hidden = !k.active;
   if (k.active) txt("#killSub", "Today's " + (k.gb || 10) + " GB hotspot cap was reached. It lifts tomorrow, or restore it now.");
-  txt("#verNum", "v" + (s.version || "?"));
 
   const cutIg = localStorage.getItem("dg_ig_cut") === dk;
   let tier = "";
@@ -938,13 +934,13 @@ go("main");
 
 /* ---- font picker ---- */
 const FONTS = [
+  ["Space Grotesk", '"Space Grotesk","Segoe UI",system-ui,sans-serif'],
   ["Segoe UI", '"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif'],
   ["Inter", '"Inter","Segoe UI",system-ui,sans-serif'],
   ["Manrope", '"Manrope","Segoe UI",system-ui,sans-serif'],
   ["Plus Jakarta Sans", '"Plus Jakarta Sans","Segoe UI",system-ui,sans-serif'],
   ["DM Sans", '"DM Sans","Segoe UI",system-ui,sans-serif'],
   ["Outfit", '"Outfit","Segoe UI",system-ui,sans-serif'],
-  ["Space Grotesk", '"Space Grotesk","Segoe UI",system-ui,sans-serif'],
   ["Sora", '"Sora","Segoe UI",system-ui,sans-serif']
 ];
 function applyFont(name, save) {
@@ -956,7 +952,7 @@ function applyFont(name, save) {
 }
 FONTS.forEach(f => {
   const b = mk("button", "fchip"); b.type = "button"; b.dataset.font = f[0]; b.style.fontFamily = f[1];
-  b.append(document.createTextNode(f[0]), mk("small", "", "42% \u00b7 1.8 GB"));
+  b.textContent = f[0];
   b.onclick = () => applyFont(f[0], true);
   $("#fonts").appendChild(b);
 });
