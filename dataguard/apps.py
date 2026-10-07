@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import sqlite3
+import subprocess
 import threading
 import time
 from datetime import date, timedelta
@@ -163,6 +164,52 @@ def _wmi_other():
         return {}
 
 
+PS_USAGE = r"""
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+$null = [Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType = WindowsRuntime]
+$null = [Windows.Networking.Connectivity.NetworkUsageStates, Windows.Networking.Connectivity, ContentType = WindowsRuntime]
+$null = [Windows.Networking.Connectivity.AttributedNetworkUsage, Windows.Networking.Connectivity, ContentType = WindowsRuntime]
+$m = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
+$lt = [System.Collections.Generic.IReadOnlyList[Windows.Networking.Connectivity.AttributedNetworkUsage]]
+$gm = $m.MakeGenericMethod($lt)
+$st = New-Object Windows.Networking.Connectivity.NetworkUsageStates  # zeroed = DoNotCare
+$end = [DateTimeOffset]::Now
+$ranges = @{ cycle = [DateTimeOffset]::Parse($env:DG_CYCLE); today = [DateTimeOffset]::Parse($env:DG_TODAY) }
+$res = @{ cycle = @{}; today = @{} }
+foreach ($p in [Windows.Networking.Connectivity.NetworkInformation]::GetConnectionProfiles()) {
+  if ($env:DG_SSID -and $p.ProfileName -ne $env:DG_SSID) { continue }
+  foreach ($k in 'cycle', 'today') {
+   try {
+    $t = $gm.Invoke($null, @($p.GetAttributedNetworkUsageAsync($ranges[$k], $end, $st)))
+    [void]$t.Wait(20000)
+    foreach ($u in $t.Result) {
+      $n = $u.AttributionName
+      if (-not $n) { continue }
+      $res[$k][$n] = [int64]$res[$k][$n] + [int64]$u.BytesSent + [int64]$u.BytesReceived
+    }
+   } catch { $script:perr = $_.Exception.Message }
+  }
+}
+if (-not $res.cycle.Count -and $script:perr) { throw $script:perr }
+$res | ConvertTo-Json -Compress -Depth 4
+"""
+
+
+def _win_usage(cycle_start, today, ssid):
+    """Windows' own per-app data usage (what Settings > Data usage shows): exact bytes,
+    includes Store apps like WhatsApp, no admin needed. {"cycle": {app: bytes}, "today": {...}}."""
+    env = dict(os.environ, DG_CYCLE=cycle_start, DG_TODAY=today, DG_SSID=ssid or "")
+    r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                        "-Command", PS_USAGE], capture_output=True, text=True, errors="replace",
+                       timeout=60, env=env, stdin=subprocess.DEVNULL, creationflags=0x08000000)
+    lines = [l for l in (r.stdout or "").splitlines() if l.strip()]
+    if r.returncode != 0 or not lines:
+        err = [l for l in ((r.stderr or "") + "\n" + (r.stdout or "")).splitlines() if l.strip()]
+        raise RuntimeError(err[0][:110] if err else "no output")
+    return json.loads(lines[-1])
+
+
 def _iso(day):
     return day.isoformat() if isinstance(day, date) else day
 
@@ -297,6 +344,10 @@ class AppTracker(threading.Thread):
         self._index_started = False
         self._lnk = {}            # program stem -> the shortcut that carries its icon
         self._no_path = {}        # app name -> when the file last could not be found
+        self.winuse = {}          # Windows' own per-app usage: {"cycle": {app: bytes}, "today": {...}}
+        self.win_err = ""
+        self._cycle_start = ""
+        self.ssid_fn = lambda: ""
 
     def exe(self, name):
         """File path for an app: the recorded one when it still exists, else looked up live
@@ -453,6 +504,7 @@ class AppTracker(threading.Thread):
         if not self.supported:
             return
         self._start_index()  # so the first page load finds icons, not a disk walk
+        threading.Thread(target=self._usage_loop, daemon=True, name="dataguard-winusage").start()
         gate = None  # None = the network is still unknown; judged on the first ticks
         while not self.stop_event.is_set():
             try:
@@ -470,6 +522,20 @@ class AppTracker(threading.Thread):
             # while the network is unknown, judge again quickly instead of waiting a full tick
             self.stop_event.wait(self.INTERVAL if gate is not None else 1.0)
         self.store.flush(force=True)
+
+    def _usage_loop(self):
+        """Every 15 s: ask Windows for its per-app totals (only while the meter is counting)."""
+        while not self.stop_event.is_set():
+            try:
+                if self.allowed():
+                    start = self._cycle_start or date.today().replace(day=1).isoformat()
+                    self.winuse = _win_usage(start, date.today().isoformat(), self.ssid_fn())
+                else:
+                    self.winuse = {}
+                self.win_err = ""
+            except Exception as e:
+                self.win_err = (str(e) or type(e).__name__)[:110]
+            self.stop_event.wait(15)
 
     def stop(self):
         self.stop_event.set()
@@ -514,6 +580,8 @@ class AppTracker(threading.Thread):
             for pid, name in blind.items():
                 if pid in raw:
                     acct(pid, name, raw[pid])
+                elif record:
+                    self.store.add(day, name, 0)  # unreadable counter: still list the app
         self.base = cur
         self.diag = "v1.2.1 · %s processes with connections, %d read via WMI" % (
             "?" if pids is None else len({q for q in pids}), len(blind))
@@ -523,9 +591,29 @@ class AppTracker(threading.Thread):
 
     def snapshot(self, cycle_start, today):
         data = self.store.snapshot(cycle_start, today)
+        self._cycle_start = _iso(cycle_start)
+        wu = self.winuse
+        if wu:  # Windows' exact numbers fill in apps our counters missed or under-counted
+            by = {_stem_key(r["app"]): r for r in data["apps"]}
+            for k in ("today", "cycle"):
+                for name, n in (wu.get(k) or {}).items():
+                    key = _stem_key(name)
+                    if not key:
+                        continue
+                    r = by.get(key)
+                    if r is None:
+                        r = {"app": name, "today": 0, "cycle": 0, "d30": 0, "days": {}}
+                        data["apps"].append(r)
+                        by[key] = r
+                    r[k] = max(r[k], int(n))
+            for r in data["apps"]:
+                r["d30"] = max(r["d30"], r["cycle"])
+            data["apps"].sort(key=lambda r: (-r["cycle"], -r["d30"], r["app"]))
+            data["count"] = len(data["apps"])
         for r in data["apps"]:
             r["blocked"] = r["app"] in self.blocked
             r["blocked_here"] = r["blocked"] and bool(self.allowed())  # enforced on this network right now
         data.update(supported=self.supported, interval=self.INTERVAL, err=self.err,
-                    diag=getattr(self, "diag", ""))
+                    diag=getattr(self, "diag", "") + " · Windows usage: "
+                    + (self.win_err or "%d apps" % len((wu or {}).get("cycle") or {})))
         return data

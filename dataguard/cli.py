@@ -145,6 +145,7 @@ def cmd_run(args, home):
     # allowed: the meter's network flag - None until known, True only on the configured Wi-Fi
     tracker = AppTracker(AppStore(home), allowed=lambda: mon.counting)
     Handler.tracker = tracker
+    tracker.ssid_fn = lambda: store.cfg["ssid"]
     threading.Thread(target=server.serve_forever, daemon=True).start()
     tracker.start()
     mon_t = threading.Thread(target=mon.run, daemon=True)
@@ -260,4 +261,3 @@ def main(argv=None):
     elif cmd == "ifaces":
         cmd_ifaces(store)
     return 0
-

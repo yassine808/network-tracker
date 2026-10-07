@@ -1,13 +1,14 @@
 """Live monitoring: sampling counters, the 15-minute ring, alerts and the dashboard status."""
 
 import collections
+import re
 import logging
 import threading
 import time
 from datetime import date, datetime, timedelta
 
 from .common import psutil
-from .interfaces import auto_iface, get_ssid
+from .interfaces import WIFI, auto_iface, get_ssid
 from .notify import notify
 from .processes import top_processes
 
@@ -81,7 +82,11 @@ class Monitor:
                 self.ssid, self.ssid_t = get_ssid(), now
             # a hotspot is configured: only that exact network counts, an unknown or different
             # name counts as nothing (the dashboard shows "Not counted on this network")
-            counted = bool(self.ssid) and self.ssid == cfg["ssid"]
+            if self.ssid is None and WIFI.search(self.iface or ""):
+                counted = True  # Windows won't tell this PC the Wi-Fi name: trust the Wi-Fi adapter
+            else:  # "Meryem 2" (Windows adds a number to repeated profiles) is still "Meryem"
+                counted = bool(self.ssid) and (self.ssid == cfg["ssid"]
+                                               or re.sub(r"\s+\d+$", "", self.ssid) == cfg["ssid"])
         else:
             counted = True
         self.counting = counted

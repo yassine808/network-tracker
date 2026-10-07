@@ -39,6 +39,13 @@ def get_ssid():
                        timeout=10, enc="utf-8")
         if ps and ps.strip():
             return ps.strip()
+        ps = run_quiet(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                        "[Console]::OutputEncoding=[Text.Encoding]::UTF8;"
+                        "Get-NetConnectionProfile | Where-Object { $_.InterfaceAlias -match "
+                        "'Wi-?Fi|WLAN|Wireless' } | Select-Object -First 1 -ExpandProperty Name"],
+                       timeout=10, enc="utf-8")
+        if ps and ps.strip():
+            return ps.strip()
         # still nothing: only say "not on Wi-Fi" if no Wi-Fi adapter is up; otherwise unknown
         try:
             stats = psutil.net_if_stats()
