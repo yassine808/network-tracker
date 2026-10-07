@@ -515,6 +515,8 @@ class AppTracker(threading.Thread):
                 if pid in raw:
                     acct(pid, name, raw[pid])
         self.base = cur
+        self.diag = "v1.2.1 · %s processes with connections, %d read via WMI" % (
+            "?" if pids is None else len({q for q in pids}), len(blind))
         if time.time() - self.t_flush >= self.FLUSH_EVERY:
             self.t_flush = time.time()
             self.store.flush()
@@ -524,5 +526,6 @@ class AppTracker(threading.Thread):
         for r in data["apps"]:
             r["blocked"] = r["app"] in self.blocked
             r["blocked_here"] = r["blocked"] and bool(self.allowed())  # enforced on this network right now
-        data.update(supported=self.supported, interval=self.INTERVAL, err=self.err)
+        data.update(supported=self.supported, interval=self.INTERVAL, err=self.err,
+                    diag=getattr(self, "diag", ""))
         return data

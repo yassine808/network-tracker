@@ -810,7 +810,7 @@ function renderApps(a) {
   const box = $("#apps"), note = $("#appsNote"), head = $("#appsHead");
   if (!a.supported) { head.hidden = true; box.replaceChildren(); note.textContent = "Per-app history only works on Windows."; return; }
   note.textContent = appsFlash || (a.err ? "Tracker problem: " + a.err
-    : "Estimated from per-app I/O counters while DataGuard runs: an approximation, not exact network bytes.");
+    : "Estimated from per-app I/O counters while DataGuard runs: an approximation, not exact network bytes." + (a.diag ? " [" + a.diag + "]" : ""));
   const all = (a.apps || []).slice(), days = a.days || [];
   const known = new Set(all.map(r => r.app));
   (Array.isArray(a.blocked) ? a.blocked : []).forEach(n => {
