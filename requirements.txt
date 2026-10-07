@@ -1,11 +1,22 @@
-# DataGuard - runtime dependencies.
-# Python 3.8+ (tested on 3.9.13).
+# DataGuard - everything Python needs on a fresh PC.
+#
+#   Python  3.9.13   (project floor is 3.8 - see dataguard/common.py)
+#   pip     26.0.1
+#
+#   py -3.9 -m pip install -r requirements.txt
+#
+# Transitive packages (bottle, proxy-tools, pythonnet, typing-extensions, six)
+# are pulled in automatically by pip - no need to list them.
 
-# Required: the one hard dependency. Everything else degrades gracefully.
-psutil>=5.9
+# --- required: the one hard dependency (usage sampling, interfaces, processes) ---
+psutil==7.2.2
 
-# Optional, recommended: tray icon + native app window + app icons on the Apps page.
-# Without them the dashboard still opens in a browser (the installer ships all four).
-# pystray>=0.19
-# pillow>=9.0
-# pywebview>=4.0
+# --- optional but shipped in the installer: tray icon, native window, app icons ---
+# Without these the dashboard still opens in a browser.
+pillow==11.3.0        # app icons on the Apps page + tray/window icon drawing
+pystray==0.19.5       # system tray icon
+pywebview==4.4.1      # native "DataGuard" app window
+
+# --- not pip packages, needed only for some workflows ---
+# Node.js 22+      ... only so tests/smoke.py can `node --check` the dashboard script
+# Inno Setup 6     ... only to build DataGuard-Setup-<version>.exe (installer/build.ps1)
