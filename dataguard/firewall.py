@@ -149,6 +149,8 @@ def _apply(argvs):
                     os.remove(p)
                 except OSError:
                     pass
+    if code == 0 and (out or "").strip():
+        logging.info("firewall: change output: %s", (out or "").strip()[-1500:])
     if code != 0:
         logging.warning("firewall: change failed (exit %s): %s", code, (out or "").strip()[-2000:])
     return _verdict(code, out)
@@ -382,6 +384,9 @@ def sync_app_blocks(items):
     if todo:
         logging.info("firewall: syncing %d block state(s) in one change (%d on, %d off)",
                      len(todo), sum(1 for t in todo if t[2]), sum(1 for t in todo if not t[2]))
+        for name, exe, block, rule in todo:
+            logging.info("firewall: %s %s -> %s (wfp present: %s)", "block" if block else "unblock",
+                         name, exe or "NO FILE", wfp.present(rule))
         src = "".join(_child(_block_script(exe, rule) if block else _unblock_script(rule))
                       for _, exe, block, rule in todo)
         _apply([["PS", src]])  # the read-only re-check below decides, not this exit code
@@ -389,6 +394,8 @@ def sync_app_blocks(items):
             try:
                 if block:
                     ok = _rule_program(rule)[0] or wfp.present(rule) is not False
+                    logging.info("firewall: after block %s: rule=%s wfp=%s", name,
+                                 _rule_program(rule)[0], wfp.present(rule))
                     verdicts[name] = (True, "") if ok else (False, "Windows did not keep the block")
                 else:
                     ok = not has_block(name)

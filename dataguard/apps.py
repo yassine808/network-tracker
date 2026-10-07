@@ -564,6 +564,8 @@ class AppTracker(threading.Thread):
         for name in sorted(self.blocked):
             for n, p in self.group(name):
                 items.setdefault(n, (n, p, bool(gate)))
+        logging.info("firewall: blocking %d program(s): %s", len(items), ", ".join(
+            "%s=%s" % (n, p or "NO FILE") for n, p, _ in items.values()))
         for name, ok, err in firewall.sync_app_blocks(list(items.values())):
             if not ok:
                 logging.warning("firewall: %s: %s", name, err)
