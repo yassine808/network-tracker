@@ -1,10 +1,22 @@
 """Windows Firewall: block one program, or cut this PC's internet. Changes need one Windows
-UAC "yes" when DataGuard is not running as administrator; reading state never does."""
+UAC "yes" when DataGuard is not running as administrator; reading state never does.
 
+Per-program blocking is layered, so one broken layer never leaves the program unblocked:
+  1. WFP filter (wfp module)                  - primary: enforced by the filtering platform itself,
+                                                even if a third-party firewall owns the engine or
+                                                the Windows Firewall profile is off
+  2. Windows Firewall rule (out + in)         - fallback + keeps the Windows Firewall UI informed
+       netsh -> New-NetFirewallRule cmdlet -> HNetCfg.FwPolicy2 COM API (each tried only if the
+       one before it failed)
+The block counts as successful when at least one layer is in place; if only the firewall rule
+took, the message says it may not be enforced."""
+
+import base64
 import ctypes
 import logging
 import os
 import re
+import struct
 import subprocess
 import sys
 import tempfile
@@ -22,6 +34,7 @@ SEAL_ALLOW = "DataGuard-Self-Allow-"
 # Blocking these would break Windows itself (DNS, logon, update...) - refuse politely.
 SYSTEM = {"svchost.exe", "lsass.exe", "services.exe", "wininit.exe", "csrss.exe", "smss.exe",
           "winlogon.exe", "System", "Registry", "Memory Compression", "System Idle Process", "Idle"}
+_SYSTEM_LOWER = {s.lower() for s in SYSTEM}  # the original compared lower-case names to a mixed-case set
 
 _SAFE = re.compile(r"[A-Za-z0-9_.:=/,+-]+$")
 _LOCK = threading.Lock()  # one UAC prompt at a time
@@ -34,6 +47,20 @@ def is_admin():
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
     except Exception:
         return False
+
+
+def _q(s):
+    """PowerShell single-quoted literal."""
+    return "'" + str(s).replace("'", "''") + "'"
+
+
+def _powershell():
+    """64-bit Windows PowerShell. The WFP structs are laid out for 64-bit; a 32-bit Python would
+    otherwise start the 32-bit PowerShell (WOW64) and the filter structs would be corrupt."""
+    sysnative = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "Sysnative", "powershell.exe")
+    if struct.calcsize("P") == 4 and os.path.isfile(sysnative):
+        return sysnative
+    return "powershell"
 
 
 def _ps_line(argv):
@@ -51,18 +78,21 @@ def _run_ps(path):
     exit code 3 = the prompt was declined)."""
     if is_admin():
         try:
-            r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path],
+            r = subprocess.run([_powershell(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path],
                                capture_output=True, text=True, errors="replace",
-                               timeout=60, creationflags=NO_WINDOW)
+                               timeout=90, creationflags=NO_WINDOW)
             return r.returncode, (r.stdout or "") + (r.stderr or "")
         except (OSError, subprocess.SubprocessError):
             return 1, ""
+    # FIX: Start-Process -ArgumentList does NOT quote array items, so a temp path containing a
+    # space (e.g. a user name with a space) used to be split and the elevated run silently
+    # failed. The script path is now wrapped in literal double quotes.
     ps = ("$ErrorActionPreference='Stop'; try { $p = Start-Process -FilePath 'powershell.exe' "
-          "-ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','%s' "
+          "-ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','\"%s\"' "
           "-Verb RunAs -Wait -WindowStyle Hidden -PassThru; exit $p.ExitCode } "
           "catch { Write-Output $_.Exception.Message; exit 3 }") % path.replace("'", "''")
     try:
-        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+        r = subprocess.run([_powershell(), "-NoProfile", "-NonInteractive", "-Command", ps],
                            capture_output=True, text=True, errors="replace",
                            timeout=240, creationflags=NO_WINDOW)
         return r.returncode, (r.stdout or "") + (r.stderr or "")
@@ -84,7 +114,7 @@ def _verdict(code, out):
 def _apply(argvs):
     """Run netsh command(s), elevating once when needed. add-rules must succeed; deletes are
     best-effort (a missing rule is fine). An entry ["PS", source] drops raw PowerShell into
-    the script instead (the WFP steps; the source exits non-zero itself on failure).
+    the script instead; that source may use $out (log file) and must exit by itself.
     Returns (ok, message)."""
     with _LOCK:
         fd, path = tempfile.mkstemp(prefix="dataguard-fw-", suffix=".ps1")
@@ -149,26 +179,98 @@ def _rule_program(rule):
     return True, program
 
 
+def _wfp_child(src):
+    """PowerShell lines that run the WFP script in its OWN powershell process. The WFP source
+    calls `exit` itself on failure; run inline it would end the whole script and skip every
+    other layer. Leaves the child's exit code in $wfpCode."""
+    blob = base64.b64encode(("\ufeff" + src).encode("utf-8")).decode("ascii")
+    return ("  $w = Join-Path $env:TEMP ('dg-wfp-' + [guid]::NewGuid().ToString('N') + '.ps1')\n"
+            "  [IO.File]::WriteAllBytes($w, [Convert]::FromBase64String('%s'))\n"
+            "  & powershell -NoProfile -ExecutionPolicy Bypass -File $w *>> $out\n"
+            "  $wfpCode = $LASTEXITCODE\n"
+            "  Remove-Item -LiteralPath $w -Force -ErrorAction SilentlyContinue\n" % blob)
+
+
+def _block_script(exe, rule):
+    """Elevated script: every layer is tried independently, success if any layer holds."""
+    return (
+        "  $ErrorActionPreference = 'Continue'\n"
+        "  $rule = %s\n  $exe = %s\n  $fw = $false\n"
+        # ---- layer 1: netsh ------------------------------------------------------------
+        "  netsh advfirewall firewall delete rule \"name=$rule\" *>> $out\n"
+        "  netsh advfirewall firewall add rule \"name=$rule\" dir=out action=block "
+        "\"program=$exe\" enable=yes profile=any *>> $out\n"
+        "  if ($LASTEXITCODE -eq 0) {\n"
+        "    $fw = $true\n"
+        "    netsh advfirewall firewall add rule \"name=$rule\" dir=in action=block "
+        "\"program=$exe\" enable=yes profile=any *>> $out\n"
+        "  }\n"
+        # ---- fallback A: NetSecurity cmdlets ------------------------------------------
+        "  if (-not $fw) {\n"
+        "    try {\n"
+        "      Get-NetFirewallRule -DisplayName $rule -ErrorAction SilentlyContinue | "
+        "Remove-NetFirewallRule -ErrorAction SilentlyContinue\n"
+        "      New-NetFirewallRule -DisplayName $rule -Direction Outbound -Program $exe "
+        "-Action Block -Profile Any -Enabled True -ErrorAction Stop | Out-Null\n"
+        "      $fw = $true\n"
+        "      New-NetFirewallRule -DisplayName $rule -Direction Inbound -Program $exe "
+        "-Action Block -Profile Any -Enabled True -ErrorAction SilentlyContinue | Out-Null\n"
+        "    } catch { Add-Content -LiteralPath $out -Value $_.Exception.Message }\n"
+        "  }\n"
+        # ---- fallback B: COM firewall API ----------------------------------------------
+        "  if (-not $fw) {\n"
+        "    try {\n"
+        "      $pol = New-Object -ComObject HNetCfg.FwPolicy2\n"
+        "      foreach ($d in 2, 1) {\n"
+        "        $r = New-Object -ComObject HNetCfg.FWRule\n"
+        "        $r.Name = $rule; $r.ApplicationName = $exe; $r.Action = 0\n"
+        "        $r.Direction = $d; $r.Profiles = 0x7FFFFFFF; $r.Enabled = $true\n"
+        "        $pol.Rules.Add($r)\n"
+        "        $fw = $true\n"
+        "      }\n"
+        "    } catch { Add-Content -LiteralPath $out -Value $_.Exception.Message }\n"
+        "  }\n"
+        # ---- layer 2: WFP filter (independent of the firewall profile state) -----------
+        % (_q(rule), _q(exe))
+    ) + _wfp_child(wfp.add_script(exe, rule)) + (
+        "  if ($fw -or $wfpCode -eq 0) { exit 0 }\n"
+        "  Add-Content -LiteralPath $out -Value 'no blocking layer could be installed'\n"
+        "  exit 5\n")
+
+
+def _unblock_script(rule):
+    return (
+        "  $ErrorActionPreference = 'Continue'\n"
+        "  $rule = %s\n"
+        "  netsh advfirewall firewall delete rule \"name=$rule\" *>> $out\n"
+        "  try { Get-NetFirewallRule -DisplayName $rule -ErrorAction SilentlyContinue | "
+        "Remove-NetFirewallRule -ErrorAction SilentlyContinue } catch {}\n"
+        % _q(rule)
+    ) + _wfp_child(wfp.remove_script(rule)) + "  exit $wfpCode\n"
+
+
 def block_app(name, exe):
-    """Stop one program from reaching the internet. (ok, message). The netsh rule keeps the
-    Windows Firewall UI informed; the WFP filter is what actually cuts the traffic."""
+    """Stop one program from reaching the internet. (ok, message)."""
     if not exe:
         return False, "the program's file could not be found"
-    if name.lower() in SYSTEM or exe.replace("\\", "/").rsplit("/", 1)[-1].lower() in SYSTEM:
+    base = exe.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if name.lower() in _SYSTEM_LOWER or base in _SYSTEM_LOWER:
         return False, "that is a Windows system service - blocking it could break the PC"
     rule = _rule_name(name)
-    ok, msg = _apply([
-        ["PS", wfp.add_script(exe, rule)],
-        ["netsh", "advfirewall", "firewall", "delete", "rule", "name=" + rule],
-        ["netsh", "advfirewall", "firewall", "add", "rule", "name=" + rule,
-         "dir=out", "action=block", "program=" + exe, "enable=yes"]])
+    ok, msg = _apply([["PS", _block_script(exe, rule)]])
     if not ok:
         return ok, msg
-    exists, _ = _rule_program(rule)
-    if not exists:
-        return False, "Windows Firewall did not keep the rule"
-    if wfp.present(rule) is False:  # None = present but only the elevated writer could read it
-        return False, "Windows did not keep the block filter"
+    rule_ok = _rule_program(rule)[0]
+    wfp_ok = wfp.present(rule) is not False  # None = present but only the elevated writer can read it
+    if not rule_ok and not wfp_ok:
+        return False, "Windows did not keep the block"
+    if wfp.present(rule) is False:
+        # The WFP filter is what the platform enforces; a netsh rule alone can be ignored when a
+        # third-party firewall controls the filter engine, so say so instead of claiming success.
+        logging.warning("firewall: %s has only the Windows Firewall rule (WFP filter missing)", name)
+        return True, "blocked by a Windows Firewall rule only - a third-party firewall may ignore it"
+    if not rule_ok:
+        logging.warning("firewall: %s blocked by the WFP filter only (no firewall rule)", name)
     return True, ""
 
 
@@ -189,9 +291,10 @@ def ensure_block(name, exe):
 def unblock_app(name):
     """Let a program reach the internet again. (ok, message)."""
     rule = _rule_name(name)
-    return _apply([
-        ["PS", wfp.remove_script(rule)],
-        ["netsh", "advfirewall", "firewall", "delete", "rule", "name=" + rule]])
+    ok, msg = _apply([["PS", _unblock_script(rule)]])
+    if _rule_program(rule)[0]:
+        return False, msg or "Windows Firewall still has the block rule"
+    return ok, msg
 
 
 def cut_active():
