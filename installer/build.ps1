@@ -33,18 +33,22 @@ if (-not (Select-String -Path (Join-Path $stage "python39._pth") -Pattern 'site-
     Add-Content (Join-Path $stage "python39._pth") "Lib\site-packages`r`n"
 }
 
-# 4. runtime deps straight into site-packages: psutil (usage) + tray/window extras (shell.py)
+# 4. runtime deps straight into site-packages. requirements.txt is the single source of truth,
+#    so what ships is exactly what we document (a bare `pip install pywebview` would drift on the next build).
 $sp = Join-Path $stage "Lib\site-packages"
 New-Item -ItemType Directory -Force -Path $sp | Out-Null
-& $Python -m pip install --quiet --target $sp psutil pystray pillow pywebview
+& $Python -m pip install --quiet --target $sp -r (Join-Path $root "requirements.txt")
 
 # 5. the app itself
 Copy-Item (Join-Path $root "dataguard.py") $stage
 Copy-Item (Join-Path $root "dataguard") $stage -Recurse
 
-# 6. the staged app must actually run before we ship it
+# 6. the staged app must actually run before we ship it: every module imports, and the entry
+#    script parses its args (this is what catches a dep we forgot to install)
 & (Join-Path $stage "python.exe") -c "import psutil, pystray, PIL, webview, dataguard; print('payload ok', psutil.__version__, dataguard.__version__)"
 if ($LASTEXITCODE -ne 0) { throw "payload smoke test failed" }
+& (Join-Path $stage "python.exe") (Join-Path $stage "dataguard.py") --help | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "payload dataguard.py --help failed (exit $LASTEXITCODE)" }
 
 # 7. drop the bytecode the smoke test just wrote: it is runtime-generated, never shipped
 $pyc = @(Get-ChildItem $stage -Recurse -Directory -Filter "__pycache__")

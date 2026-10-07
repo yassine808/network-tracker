@@ -15,7 +15,7 @@ psutil==7.2.2
 # Without these the dashboard still opens in a browser.
 pillow==11.3.0        # app icons on the Apps page + tray/window icon drawing
 pystray==0.19.5       # system tray icon
-pywebview==4.4.1      # native "DataGuard" app window
+pywebview==6.2.1      # native "DataGuard" app window
 
 # --- not pip packages, needed only for some workflows ---
 # Node.js 22+      ... only so tests/smoke.py can `node --check` the dashboard script
