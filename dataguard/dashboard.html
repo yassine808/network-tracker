@@ -14,26 +14,26 @@
 html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--f);font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;overflow:hidden}
 #app{display:flex;flex-direction:column;height:100vh}
-header{display:flex;align-items:center;gap:20px;padding:10px 24px;border-bottom:1px solid var(--line);flex:none}
-.brand{font-weight:700;letter-spacing:-.01em;font-size:15px;display:flex;align-items:center;gap:8px}
-.brand i{width:10px;height:10px;border-radius:3px;background:var(--acc);display:block}
-nav{display:flex;gap:2px}
-.nav{border:0;background:transparent;color:var(--mute);font:600 13.5px var(--f);padding:7px 14px;border-radius:8px;cursor:pointer}
-.nav:hover{color:var(--ink)}
-.nav.on{background:var(--panel2);color:var(--ink)}
-.hr{margin-left:auto;display:flex;align-items:center;gap:16px;font-size:12.5px;color:var(--mute)}
-#netHdr{display:flex;align-items:center;gap:7px;max-width:230px}
-.nico{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;color:var(--mute);transition:color .3s}
+header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:20px;padding:12px 24px;flex:none}
+nav{display:flex;gap:4px;padding:4px;border-radius:99px;background:var(--panel);border:1px solid var(--line)}
+.nav{border:0;background:transparent;color:var(--mute);font:600 13.5px var(--f);padding:7px 20px;border-radius:99px;cursor:pointer;transition:background .2s,color .2s}
+.nav:hover{color:var(--ink);border:0}
+.nav.on{background:var(--acc);color:#0b1020}
+.hl{display:flex;align-items:center;gap:10px;min-width:0}
+.hr{display:flex;align-items:center;gap:10px;justify-content:flex-end;font-size:12.5px;color:var(--mute)}
+#netHdr{display:flex;align-items:center;gap:8px;max-width:260px;padding:5px 8px 5px 12px;border-radius:99px;background:var(--panel);border:1px solid var(--line)}
+.nico{width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;color:var(--mute);transition:color .3s}
 .nico.on{color:var(--ok)}
 #netName{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink);font-weight:600}
-#netEdit{border:0;background:none;color:var(--faint);cursor:pointer;padding:2px;font-size:13px}
-#netEdit:hover{color:var(--acc)}
-.chip{display:inline-flex;align-items:center;gap:7px;padding:3px 10px;border-radius:99px;background:var(--panel);border:1px solid var(--line);font-size:12px;color:var(--mute);max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#netEdit{border:0;background:none;color:var(--faint);cursor:pointer;padding:2px 4px;font-size:13px}
+#netEdit:hover{color:var(--acc);border:0}
+.chip{display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:99px;background:var(--panel);border:1px solid var(--line);font-size:12px;color:var(--mute);max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .chip::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--faint);flex:none}
-.chip.ok{color:var(--ink)}.chip.ok::before{background:var(--ok)}
+.chip.ok{color:var(--ink)}.chip.ok::before{background:var(--ok);box-shadow:0 0 8px var(--ok)}
 .chip.warn::before{background:var(--warn)}
-.sys{font:12px var(--mono)}
-main{flex:1;overflow-y:auto;padding:14px 24px 18px;min-height:0}
+.sys{font:12px var(--mono);padding:5px 12px;border-radius:99px;background:var(--panel);border:1px solid var(--line)}
+.sys b{color:var(--ink);font-weight:600}
+main{flex:1;overflow-y:auto;padding:6px 24px 18px;min-height:0}
 .wrap{max-width:1240px;margin:0 auto;height:100%}
 [data-p]{display:grid;gap:16px;align-content:start}
 [data-p][hidden]{display:none}
@@ -48,30 +48,29 @@ h3{margin:0 0 2px;font-size:14px}
 .sub{color:var(--mute);font-size:13px}
 .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
 
-/* top row */
-.top{flex:1;min-height:0;display:grid;grid-template-columns:minmax(250px,.95fr) minmax(0,2.1fr) minmax(210px,.85fr);gap:14px}
+.top{flex:1;min-height:0;display:grid;grid-template-columns:minmax(340px,1fr) minmax(0,1.5fr);gap:14px}
 .top>.panel{min-height:0;display:flex;flex-direction:column}
 
 /* cycle ring */
 .cyc{align-items:center;justify-content:space-between;text-align:center}
 .cyc h2{align-self:stretch}
-.ringbox{--rs:clamp(140px,30vh,230px);width:var(--rs);height:var(--rs);position:relative;flex:none}
+.ringbox{--rs:clamp(190px,42vh,330px);width:var(--rs);height:var(--rs);position:relative;flex:none}
 .ringbox svg{width:100%;height:100%;display:block}
 .rg{fill:none;stroke-linecap:round}
 .rg.bg{stroke:var(--panel2)}
 .rg.fg{stroke:currentColor;stroke-dasharray:100 100;stroke-dashoffset:100;transition:stroke-dashoffset .6s ease,color .3s,opacity .3s;filter:drop-shadow(0 0 4px currentColor)}
 .ringc{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0}
 .remrow{display:flex;align-items:baseline;justify-content:center;gap:4px}
-#rem{font:300 calc(var(--rs)*.175)/1.1 var(--f);letter-spacing:-.04em;width:3ch;padding:0 2px;border:1px solid transparent;border-radius:10px;background:transparent;color:var(--ink);text-align:center;-moz-appearance:textfield}
+#rem{font:300 calc(var(--rs)*.185)/1.1 var(--f);letter-spacing:-.04em;width:3ch;padding:0 2px;border:1px solid transparent;border-radius:10px;background:transparent;color:var(--ink);text-align:center;-moz-appearance:textfield}
 #rem::-webkit-outer-spin-button,#rem::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 #rem:hover,#rem:focus{border-color:var(--line);background:var(--panel2)}
 #remu{font-size:calc(var(--rs)*.08);color:var(--mute);font-style:normal}
 #remEdit{border:0;background:none;color:var(--faint);cursor:pointer;font-size:12px;padding:0 2px}
 #remEdit:hover{color:var(--acc)}
 #remn{font-size:11px;line-height:1.2}
-.cmeta{display:flex;gap:28px;justify-content:center;text-align:left}
+.cmeta{display:flex;gap:32px;justify-content:center;text-align:left}
 .cmeta div>span:first-child{display:block;font-size:12px;color:var(--mute)}
-.cmeta b{font-size:18px;font-weight:600;letter-spacing:-.02em}
+.cmeta b{font-size:20px;font-weight:600;letter-spacing:-.02em}
 .cmeta small{display:flex;gap:4px;align-items:center;font-size:12px;color:var(--mute)}
 #planGb{width:4.4em;padding:1px 6px;border-radius:6px;font-size:12px;text-align:right}
 .pinfo{font-size:12.5px;color:var(--mute)}
@@ -80,12 +79,12 @@ h3{margin:0 0 2px;font-size:14px}
 .funpill:hover{border-color:var(--acc)}
 
 /* today */
-.today{justify-content:space-between}
+.today{gap:12px}
 .trow{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap}
 .big{font:300 56px/1.05 var(--f);letter-spacing:-.035em}
 .track{height:10px;background:var(--panel2);border-radius:99px;overflow:hidden}
 .track i{display:block;height:100%;width:0;border-radius:99px;background:var(--ok);transition:width .5s ease,background .3s}
-.track.xl{height:clamp(34px,7vh,60px);border-radius:16px;position:relative;margin:6px 0}
+.track.xl{height:clamp(30px,5.5vh,48px);border-radius:16px;position:relative;margin:6px 0}
 .track.xl i{border-radius:16px}
 .track.xl::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(90deg,transparent 75%,rgba(255,255,255,.28) 75% calc(75% + 2px),transparent calc(75% + 2px) 90%,rgba(255,255,255,.28) 90% calc(90% + 2px),transparent calc(90% + 2px))}
 .tickrow{position:relative;height:14px;font-size:10.5px;color:var(--faint);margin-top:-2px}
@@ -94,8 +93,23 @@ h3{margin:0 0 2px;font-size:14px}
 .track.xl i.bl1{animation:tblink 1.5s ease-in-out infinite}
 .track.xl i.bl2{animation:tblink .7s ease-in-out infinite}
 .track.xl i.bl3{animation:tblink .35s ease-in-out infinite}
+
+/* live strip inside Today */
+.live{flex:1;min-height:150px;display:flex;flex-direction:column;border-radius:12px;background:var(--panel2);border:1px solid var(--line);padding:12px 14px 8px}
+.lhead{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+.lt{font-size:12px;font-weight:600;color:var(--mute);display:flex;align-items:center;gap:7px}
+.lt::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--ok);animation:tblink 2s ease-in-out infinite}
+.rate{display:flex;align-items:baseline;gap:8px}
+.rate svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;align-self:center}
+.rate b{font:600 17px var(--mono);letter-spacing:-.02em}
+.rate span{font-size:11.5px;color:var(--mute)}
+#nc{margin-left:auto;font-size:12px;color:var(--warn)}
+#cvw{flex:1;min-height:70px;position:relative;margin-top:6px}
+#cv{position:absolute;inset:0;width:100%;height:100%;display:block}
+.ax{display:flex;justify-content:space-between;font-size:10.5px;color:var(--faint);margin-top:4px;padding-left:54px}
+
 .tbtns{display:flex;gap:12px;flex-wrap:wrap}
-.tbtn{display:inline-flex;align-items:center;gap:9px;min-height:42px;padding:0 20px;border-radius:11px;font:600 14px var(--f);cursor:pointer;border:1px solid var(--acc);background:color-mix(in srgb,var(--acc) 14%,var(--panel2));color:var(--ink)}
+.tbtn{display:inline-flex;align-items:center;gap:9px;min-height:40px;padding:0 20px;border-radius:11px;font:600 14px var(--f);cursor:pointer;border:1px solid var(--acc);background:color-mix(in srgb,var(--acc) 14%,var(--panel2));color:var(--ink)}
 .tbtn:hover{background:color-mix(in srgb,var(--acc) 28%,var(--panel2))}
 .tbtn:active{transform:translateY(1px)}
 .tbtn svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
@@ -105,16 +119,6 @@ h3{margin:0 0 2px;font-size:14px}
 @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(248,113,113,.55)}50%{box-shadow:0 0 0 8px rgba(248,113,113,0)}}
 .tbtn.alert{animation:pulse 1.4s ease-out infinite}
 .tag{display:inline-block;font-size:12.5px;font-weight:600;padding:3px 11px;border-radius:99px;background:color-mix(in srgb,currentColor 14%,transparent);text-transform:none;letter-spacing:0}
-
-/* right now */
-#cvw{flex:1;min-height:70px;position:relative}
-#cv{position:absolute;inset:0;width:100%;height:100%;display:block}
-.lg{display:flex;gap:12px;font-size:11.5px;color:var(--mute);text-transform:none;letter-spacing:0;font-weight:500}
-.lg span{display:inline-flex;align-items:center;gap:5px}.lg i{width:9px;height:9px;border-radius:2px}
-.ax{display:flex;justify-content:space-between;font-size:10.5px;color:var(--faint);margin-top:4px}
-.rt{display:flex;gap:18px;margin-top:8px}
-.rt div span{font-size:11.5px;color:var(--mute);display:block}
-.rt div b{font:600 16px var(--mono);letter-spacing:-.02em}
 
 /* heatmap */
 .hm{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:5px}
@@ -151,9 +155,15 @@ label.chk{display:flex;gap:9px;align-items:center;color:var(--ink)}
 input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
 .actions{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
 #msg{font-size:13px;color:var(--mute)}
-.group{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
-.group>p{margin:0 0 12px}
-.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin:0 0 14px}
+.form{display:grid;gap:14px;margin:12px 0 0}
+
+/* settings cards */
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.cards .panel{display:flex;flex-direction:column}
+.cards .wide{grid-column:1/-1}
+.savebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;position:sticky;bottom:0;padding:12px 18px;border-radius:14px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);backdrop-filter:blur(10px)}
+.savebar #msg{margin-left:auto}
+.cards .panel.dng{border-color:color-mix(in srgb,var(--bad) 35%,var(--line))}
 
 /* apps */
 .row{display:grid;grid-template-columns:minmax(90px,170px) 1fr auto;gap:12px;align-items:center}
@@ -185,6 +195,9 @@ input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
   .top{grid-template-columns:1fr;flex:none}
   .hr .sys{display:none}
   .wrap{height:auto}
+  header{grid-template-columns:1fr;justify-items:center}
+  .hl{display:none}
+  .cards{grid-template-columns:1fr}
 }
 @media(max-width:560px){.apphead,.approw summary{grid-template-columns:minmax(80px,1fr) 60px 70px 104px}.apphead span:nth-child(2),.approw summary .track{display:none}}
 
@@ -197,17 +210,18 @@ input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
 <body>
 <div id="app">
 <header>
-  <div class="brand"><i></i>DataGuard</div>
+  <div class="hl">
+    <div id="netHdr">
+      <svg id="icoWifi" class="nico" viewBox="0 0 24 24" aria-hidden="true"><path d="M1.5 8.5a15 15 0 0 1 21 0"/><path d="M5 12.2a10 10 0 0 1 14 0"/><path d="M8.4 15.7a5.2 5.2 0 0 1 7.2 0"/><circle cx="12" cy="19.2" r="1.3" fill="currentColor" stroke="none"/></svg>
+      <svg id="icoEth" class="nico" viewBox="0 0 24 24" aria-hidden="true" style="display:none"><rect x="3" y="4" width="18" height="12" rx="1.8"/><path d="M8 20h8M12 16v4"/></svg>
+      <span id="netName"></span><button type="button" id="netEdit" title="Choose the Wi-Fi name DataGuard counts" aria-label="Choose the Wi-Fi name DataGuard counts">&#9998;</button></div>
+  </div>
   <nav>
     <button type="button" class="nav on" data-go="main">Overview</button>
     <button type="button" class="nav" data-go="apps">Apps</button>
     <button type="button" class="nav" data-go="settings">Settings</button>
   </nav>
   <div class="hr">
-    <div id="netHdr">
-      <svg id="icoWifi" class="nico" viewBox="0 0 24 24" aria-hidden="true"><path d="M1.5 8.5a15 15 0 0 1 21 0"/><path d="M5 12.2a10 10 0 0 1 14 0"/><path d="M8.4 15.7a5.2 5.2 0 0 1 7.2 0"/><circle cx="12" cy="19.2" r="1.3" fill="currentColor" stroke="none"/></svg>
-      <svg id="icoEth" class="nico" viewBox="0 0 24 24" aria-hidden="true" style="display:none"><rect x="3" y="4" width="18" height="12" rx="1.8"/><path d="M8 20h8M12 16v4"/></svg>
-      <span id="netName"></span><button type="button" id="netEdit" title="Choose the Wi-Fi name DataGuard counts" aria-label="Choose the Wi-Fi name DataGuard counts">&#9998;</button></div>
     <span id="netState" class="chip">Connecting&hellip;</span>
     <span class="sys">CPU <b id="cpuV">-</b> &nbsp;RAM <b id="ramV">-</b></span>
   </div>
@@ -231,7 +245,7 @@ input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
           <circle class="rg fg" id="ringT" cx="100" cy="100" r="71" stroke-width="5" pathLength="100" transform="rotate(-90 100 100)"/>
         </svg>
         <div class="ringc">
-          <div class="sub" style="font-size:11px"><span id="remk">Left this cycle</span> <button type="button" id="remEdit" aria-label="Change gigabytes left" title="Change">&#9998;</button></div>
+          <div class="sub" style="font-size:12px"><span id="remk">Left this cycle</span> <button type="button" id="remEdit" aria-label="Change gigabytes left" title="Change">&#9998;</button></div>
           <div class="remrow"><input id="rem" type="number" step="0.01" inputmode="decimal" aria-label="Gigabytes left this cycle, negative if over plan"><i id="remu">GB</i></div>
           <div class="sub" id="remn"></div>
         </div>
@@ -255,23 +269,24 @@ input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
         <div class="tickrow"><span style="left:0%;transform:none">0</span><span style="left:75%">75%</span><span style="left:90%">90%</span><span style="left:100%;transform:translateX(-100%)">limit</span></div>
       </div>
       <p class="sub" id="pnote" style="margin:0"></p>
+
+      <div class="live">
+        <div class="lhead">
+          <span class="lt">Live</span>
+          <div class="rate" style="color:var(--down)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v15M6 13l6 6 6-6"/></svg><b id="down">-</b><span>down</span></div>
+          <div class="rate" style="color:var(--up)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V5M6 11l6-6 6 6"/></svg><b id="up">-</b><span>up</span></div>
+          <span id="nc"></span>
+        </div>
+        <div id="cvw"><canvas id="cv"></canvas></div>
+        <div class="ax"><span>5 min ago</span><span>now</span></div>
+      </div>
+
       <div class="tbtns">
         <button type="button" id="tbarReset" class="tbtn" title="Restart the bar. Today's total is kept.">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>Restart bar</button>
         <button type="button" id="tbIgnore" class="tbtn alert" hidden title="Silence the alarm until tomorrow">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 9.3-5M18 8c0 4 1.5 6 2 7H4"/><path d="M10 20a2 2 0 0 0 4 0M3 3l18 18"/></svg>Ignore alarm</button>
       </div>
-    </section>
-
-    <section class="panel">
-      <h2><span>Right now</span><span class="lg"><span><i style="background:var(--down)"></i>Down</span><span><i style="background:var(--up)"></i>Up</span></span></h2>
-      <div id="cvw"><canvas id="cv"></canvas></div>
-      <div class="ax"><span>5 min ago</span><span>now</span></div>
-      <div class="rt">
-        <div><span>Download</span><b id="down" style="color:var(--down)">-</b></div>
-        <div><span>Upload</span><b id="up" style="color:var(--up)">-</b></div>
-      </div>
-      <div class="sub" id="nc" style="margin-top:4px;font-size:12px"></div>
     </section>
   </div>
 
@@ -295,43 +310,40 @@ input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
 </div>
 
 <div data-p="settings" hidden>
-<section class="panel"><h2>Settings &amp; calibration</h2>
-  <div class="group" style="margin-top:6px;border:0;padding:0"><h3>Plan</h3><p class="sub">Your data allowance and when it resets.</p>
-    <div class="form">
-      <label>Plan size (GB)<input id="f_plan" type="number" min="1" step="1"></label>
-      <label>Renewal day of month<input id="f_day" type="number" min="1" max="31"></label>
-      <label>Reserve (% kept untouched)<input id="f_res" type="number" min="0" max="50" step="1"></label>
-      <label class="chk"><input id="f_bin" type="checkbox"> My carrier counts 1 GB = 1024 MB</label>
-    </div></div>
-  <div class="group"><h3>Network</h3><p class="sub">Choose which traffic counts toward your plan.</p>
-    <div class="form">
-      <label>Phone hotspot Wi-Fi name<input id="f_ssid" placeholder="empty = count the whole interface"></label>
-      <label>Network interface<select id="f_iface"></select></label>
-    </div></div>
-  <div class="group"><h3>Alerts</h3><p class="sub">Get warned before the plan runs out.</p>
-    <div class="form">
-      <label>Alert at (% of plan, comma separated)<input id="f_alerts"></label>
-      <label>Warn above (MB per minute, 0 = off)<input id="f_burst" type="number" min="0"></label>
-      <label class="chk"><input id="f_notify" type="checkbox"> Desktop notifications</label>
-      <label class="chk"><input id="f_snd" type="checkbox"> Sound effects</label>
-    </div>
-    <div class="actions"><span class="sub" style="align-self:center">Preview sounds:</span>
-      <button type="button" id="pv1">Heads-up (75%)</button>
-      <button type="button" id="pv2">Warning (90%)</button>
-      <button type="button" id="pv3">Alarm (over limit)</button></div></div>
-  <div class="actions" style="margin-top:20px"><button class="pri" id="save">Save changes</button>
-    <button id="useSsid">Use the Wi-Fi I'm on now</button>
-    <button id="test">Test notification</button><span id="msg"></span></div>
-  <div class="group"><h3>Calibrate</h3>
-    <p class="sub">The laptop only sees its own traffic; your carrier also counts your phone's. Calibrate every few days (check your carrier's app) and the totals stay exact.</p>
-    <div class="actions">
-      <label>Carrier says I've used (GB) this cycle<input id="f_cal" type="number" min="0" step="0.1"></label>
-      <button id="calBtn">Calibrate</button></div></div>
-  <div class="group"><h3>Reset this month</h3>
-    <p class="sub">Zero this cycle's counters and per-app totals. Settings and past months are kept.</p>
-    <div class="actions"><button id="resetBtn" class="danger">Reset this month</button></div></div>
-  <div class="group"><h3>About</h3><p class="sub">DataGuard <b id="verNum">v?</b> &middot; shortcuts: 1 Overview, 2 Apps, 3 Settings</p></div>
-</section>
+  <div class="cards">
+    <section class="panel"><h2>Plan</h2><p class="sub" style="margin:0">Your data allowance and when it resets.</p>
+      <div class="form">
+        <label>Plan size (GB)<input id="f_plan" type="number" min="1" step="1"></label>
+        <label>Renewal day of month<input id="f_day" type="number" min="1" max="31"></label>
+        <label>Reserve (% kept untouched)<input id="f_res" type="number" min="0" max="50" step="1"></label>
+        <label class="chk"><input id="f_bin" type="checkbox"> My carrier counts 1 GB = 1024 MB</label>
+      </div></section>
+    <section class="panel"><h2>Network</h2><p class="sub" style="margin:0">Choose which traffic counts toward your plan.</p>
+      <div class="form">
+        <label>Phone hotspot Wi-Fi name<input id="f_ssid" placeholder="empty = count the whole interface"></label>
+        <label>Network interface<select id="f_iface"></select></label>
+        <div class="actions"><button type="button" id="useSsid">Use the Wi-Fi I'm on now</button></div>
+      </div></section>
+    <section class="panel"><h2>Alerts</h2><p class="sub" style="margin:0">Get warned before the plan runs out.</p>
+      <div class="form">
+        <label>Alert at (% of plan, comma separated)<input id="f_alerts"></label>
+        <label>Warn above (MB per minute, 0 = off)<input id="f_burst" type="number" min="0"></label>
+        <label class="chk"><input id="f_notify" type="checkbox"> Desktop notifications</label>
+        <label class="chk"><input id="f_snd" type="checkbox"> Sound effects</label>
+      </div></section>
+    <section class="panel"><h2>Sounds &amp; notifications</h2><p class="sub" style="margin:0">Hear and see what each alert will do.</p>
+      <div class="form">
+        <div class="actions">
+          <button type="button" id="pv1">Heads-up (75%)</button>
+          <button type="button" id="pv2">Warning (90%)</button>
+          <button type="button" id="pv3">Alarm (over limit)</button></div>
+        <div class="actions"><button type="button" id="test">Test notification</button></div>
+      </div></section>
+    <section class="panel dng wide"><h2>Reset this month</h2>
+      <p class="sub" style="margin:0 0 12px">Zero this cycle's counters and per-app totals. Settings and past months are kept.</p>
+      <div class="actions"><button id="resetBtn" class="danger">Reset this month</button></div></section>
+  </div>
+  <div class="savebar"><span class="sub">Changes save automatically &middot; DataGuard <b id="verNum">v?</b> &middot; shortcuts: 1 Overview, 2 Apps, 3 Settings</span><span id="msg"></span></div>
 </div>
 
 </div></main>
@@ -399,20 +411,17 @@ function voice(o) {
     g.connect(master); osc.start(t); osc.stop(t + d + .05);
   } catch (e) {}
 }
-/* 75%: calm heads-up, soft rising arpeggio */
 const chime = () => {
   [659, 784, 988].forEach((f, i) => {
     voice({f, d: .45, g: .09, t: i * .12});
     voice({f: f * 2, d: .25, g: .025, t: i * .12 + .01});
   });
 };
-/* 90%: tense, three rising urgent pulses and a climbing tail */
 const warnSfx = () => {
   [440, 554, 659].forEach((f, i) => voice({f, t: i * .14, d: .12, g: .17, type: "sawtooth", lp: 1800, atk: .004}));
   voice({f: 880, to: 1175, t: .46, d: .36, g: .15, type: "sawtooth", lp: 2200, atk: .01});
   voice({f: 110, d: .7, g: .08, type: "square", lp: 300, atk: .02});
 };
-/* over limit: full siren sweeps over a low rumble, ends with a heavy drop */
 const alarm = () => {
   for (let i = 0; i < 3; i++) {
     voice({f: 620, to: 1240, t: i * .56, d: .28, g: .2, type: "sawtooth", lp: 2600, atk: .01});
@@ -431,7 +440,7 @@ const sfx = {
 function startAlarm() { if (alarmTimer) return; alarm(); alarmTimer = setInterval(alarm, 30000); }
 function stopAlarm() { if (alarmTimer) { clearInterval(alarmTimer); alarmTimer = 0; } }
 
-/* ---- "Right now" chart ---- */
+/* ---- live chart (inside Today) ---- */
 const RUNG = [50000, 100000, 200000, 500000, 1e6, 2e6, 5e6, 1e7, 2e7, 5e7, 1e8];
 let yTop = RUNG[0], lastSeries = null;
 function axisTop(peak) {
@@ -454,25 +463,28 @@ function drawChart() {
   c.font = "10.5px " + css.getPropertyValue("--mono"); c.textBaseline = "middle"; c.textAlign = "right";
   [0, .5, 1].forEach(f => {
     const y = Math.round(yv(top * f)) + .5;
-    c.strokeStyle = css.getPropertyValue("--line"); c.lineWidth = 1;
+    c.strokeStyle = css.getPropertyValue("--line"); c.lineWidth = 1; c.setLineDash(f ? [3, 4] : []);
     c.beginPath(); c.moveTo(x0, y); c.lineTo(x1, y); c.stroke();
     c.fillStyle = css.getPropertyValue("--faint");
     c.fillText(f ? rate(top * f) : "0", padL - 8, Math.min(Math.max(y, 8), H - 8));
   });
+  c.setLineDash([]);
   const N = Math.max(down.length, up.length, 2);
   const pts = a => a.map((v, i) => [x0 + (i / (N - 1)) * (x1 - x0), yv(v)]);
   const path = (p, close) => {
-    c.beginPath(); p.forEach((q, i) => i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]));
-    if (close) { c.lineTo(p[p.length - 1][0], y0); c.lineTo(p[0][0], y0); c.closePath(); }
+    c.beginPath(); c.moveTo(p[0][0], p[0][1]);
+    for (let i = 1; i < p.length - 1; i++) c.quadraticCurveTo(p[i][0], p[i][1], (p[i][0] + p[i + 1][0]) / 2, (p[i][1] + p[i + 1][1]) / 2);
+    const l = p[p.length - 1]; c.lineTo(l[0], l[1]);
+    if (close) { c.lineTo(l[0], y0); c.lineTo(p[0][0], y0); c.closePath(); }
   };
   const dc = css.getPropertyValue("--down").trim(), uc = css.getPropertyValue("--up").trim();
   if (down.length > 1) {
     const p = pts(down); path(p, true);
     const g = c.createLinearGradient(0, y1, 0, y0); g.addColorStop(0, dc + "66"); g.addColorStop(1, dc + "0d");
     c.fillStyle = g; c.fill();
-    path(p, false); c.strokeStyle = dc; c.lineWidth = 1.6; c.lineJoin = "round"; c.stroke();
+    path(p, false); c.strokeStyle = dc; c.lineWidth = 2; c.lineJoin = "round"; c.stroke();
   }
-  if (up.length > 1) { path(pts(up), false); c.strokeStyle = uc; c.lineWidth = 1.4; c.lineJoin = "round"; c.stroke(); }
+  if (up.length > 1) { path(pts(up), false); c.strokeStyle = uc; c.lineWidth = 1.6; c.lineJoin = "round"; c.stroke(); }
 }
 window.addEventListener("resize", drawChart);
 
@@ -746,16 +758,24 @@ function renderApps(a) {
   else if (foot) foot.remove();
 }
 
-$("#save").onclick = async () => {
+let saveT = 0, saveSeq = 0;
+async function autoSave() {
+  const plan = +$("#f_plan").value, day = +$("#f_day").value, res = +$("#f_res").value;
+  if (!(plan >= 1 && day >= 1 && day <= 31 && res >= 0 && res <= 50)) { msg("Not saved yet: check the plan, renewal day and reserve values."); return; }
+  const seq = ++saveSeq;
   try {
     await post("/api/config", {
-      plan_gb: +$("#f_plan").value, reset_day: +$("#f_day").value, reserve_pct: +$("#f_res").value,
+      plan_gb: plan, reset_day: day, reserve_pct: res,
       ssid: $("#f_ssid").value, iface: $("#f_iface").value,
       alert_pcts: $("#f_alerts").value.split(",").map(x => parseInt(x, 10)).filter(x => x > 0),
-      burst_mb_per_min: +$("#f_burst").value, binary_gb: $("#f_bin").checked, notify: $("#f_notify").checked});
-    filled = false; msg("Saved."); sfx.saved(); tick();
-  } catch (e) { msg(e.message); }
-};
+      burst_mb_per_min: Math.max(0, +$("#f_burst").value || 0), binary_gb: $("#f_bin").checked, notify: $("#f_notify").checked});
+    if (seq === saveSeq) { msg("Saved \u2713"); sfx.saved(); }
+    tick();
+  } catch (e) { msg("Couldn't save: " + e.message); }
+}
+const queueSave = now => { clearTimeout(saveT); saveT = setTimeout(autoSave, now ? 0 : 700); };
+["f_plan", "f_day", "f_res", "f_ssid", "f_alerts", "f_burst"].forEach(id => { $("#" + id).addEventListener("input", () => queueSave(false)); });
+["f_bin", "f_notify", "f_iface"].forEach(id => { $("#" + id).addEventListener("change", () => queueSave(true)); });
 $("#planGb").onchange = async () => {
   const el = $("#planGb"), v = parseFloat(el.value);
   if (!(v >= 1 && v <= 100000)) { el.value = ST ? ST.cfg.plan_gb : ""; toast("Plan size must be between 1 and 100000 GB.", "err"); return; }
@@ -791,7 +811,7 @@ $("#rem").onchange = async () => {
 $("#useSsid").onclick = async () => {
   try {
     const j = await (await fetch("/api/ssid")).json();
-    if (j.ssid) { $("#f_ssid").value = j.ssid; msg("Filled in \u201c" + j.ssid + "\u201d; press Save."); }
+    if (j.ssid) { $("#f_ssid").value = j.ssid; (msg("Wi-Fi name set to \u201c" + j.ssid + "\u201d."), queueSave(true)); }
     else msg(j.ssid === "" ? "You're not on Wi-Fi right now." : "Couldn't read the Wi-Fi name on this system.");
   } catch (e) { msg(e.message); }
 };
@@ -799,11 +819,6 @@ $("#test").onclick = async () => { try { await post("/api/notify-test", {}); msg
 $("#pv1").onclick = chime;
 $("#pv2").onclick = warnSfx;
 $("#pv3").onclick = alarm;
-$("#calBtn").onclick = async () => {
-  const v = parseFloat($("#f_cal").value);
-  if (!(v >= 0)) return msg("Enter the GB your carrier reports.");
-  try { await post("/api/calibrate", {gb: v}); msg("Calibrated."); sfx.saved(); tick(); } catch (e) { msg(e.message); }
-};
 $("#resetBtn").onclick = async () => {
   if (!confirm("Zero this cycle's usage and per-app totals?\nSettings and past months are kept.")) return;
   try { await post("/api/reset", {}); msg("This cycle was reset."); tick(); } catch (e) { msg(e.message); }
