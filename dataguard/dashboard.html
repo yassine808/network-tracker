@@ -198,7 +198,7 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
 /* apps */
 .row{display:grid;grid-template-columns:minmax(90px,170px) 1fr auto;gap:12px;align-items:center}
 .row .track{height:8px}
-.apphead,.approw summary{display:grid;grid-template-columns:minmax(110px,200px) 1fr 76px 88px 118px;gap:14px;align-items:center}
+.apphead,.approw summary{display:grid;grid-template-columns:minmax(120px,1fr) 90px 76px 88px 118px;gap:14px;align-items:center}
 .apphead{font-size:12px;color:var(--mute);padding:12px 0 6px}
 .apphead[hidden]{display:none}
 .apphead span:nth-child(n+3){text-align:right}
@@ -219,6 +219,26 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
 .days i.z{background:var(--line);opacity:1}
 .daylbl{display:flex;justify-content:space-between;font-size:11.5px;color:var(--mute);padding:0 4px 10px}
 
+/* apps page */
+.tabs{display:inline-flex;gap:4px;padding:4px;border-radius:99px;background:var(--panel2);border:1px solid var(--line);margin:2px 0 10px}
+.tab{border:0;background:transparent;color:var(--mute);font-weight:600;padding:6px 14px;border-radius:99px;display:inline-flex;align-items:center;gap:8px}
+.tab:hover{color:var(--ink);border:0}
+.tab i{font-style:normal;font-size:11.5px;min-width:24px;text-align:center;padding:1px 7px;border-radius:99px;background:var(--line);color:var(--ink)}
+.tab.on{background:var(--acc);color:#0b1020}
+.tab.on i{background:#0b1020;color:var(--acc)}
+.tab[data-tab="blocked"].on{background:var(--bad)}
+.tab[data-tab="blocked"].on i{color:var(--bad)}
+.apphead{padding:12px 10px 6px}
+.approw{border-top:1px solid var(--line);padding:0 10px}
+.approw:hover,.approw[open]{background:var(--panel2)}
+.approw summary{padding:12px 0}
+.st{justify-self:start;font-size:12px;font-weight:600;padding:2px 10px;border-radius:99px;background:color-mix(in srgb,var(--ok) 14%,transparent);color:var(--ok)}
+.st.bad{background:color-mix(in srgb,var(--bad) 14%,transparent);color:var(--bad)}
+.approw.isblk .nm{color:var(--bad)}
+.blk{border-radius:99px;padding:5px 14px}
+.blk:hover{border-color:var(--bad);color:var(--bad)}
+.blk.on:hover{border-color:var(--ok);color:var(--ok)}
+.bempty{color:var(--mute);padding:14px 10px}
 @media(max-width:1000px){
   body{overflow:auto}
   [data-p="main"]:not([hidden]){height:auto}
@@ -229,7 +249,7 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
   .hl{display:none}
   .cards{grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
 }
-@media(max-width:560px){.apphead,.approw summary{grid-template-columns:minmax(80px,1fr) 60px 70px 104px}.apphead span:nth-child(2),.approw summary .track{display:none}}
+@media(max-width:560px){.apphead,.approw summary{grid-template-columns:minmax(80px,1fr) 60px 70px 104px}.apphead span:nth-child(2),.approw summary .st{display:none}}
 
 #toast{position:fixed;right:24px;bottom:24px;max-width:340px;padding:11px 16px;border-radius:12px;background:var(--panel2);border:1px solid var(--line);box-shadow:0 14px 40px rgba(0,0,0,.5);font-size:13.5px;z-index:90;opacity:0;transform:translateY(12px);transition:opacity .25s,transform .25s}
 #toast.show{opacity:1;transform:none}
@@ -329,13 +349,14 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
 </div>
 
 <div data-p="apps" hidden>
-  <section class="panel"><h2>Who's using data right now?</h2>
-    <div class="actions"><button id="whoBtn" class="pri">Measure (3 s)</button></div>
-    <p class="sub" id="whoNote" style="margin:10px 0 0">Estimated from per-app activity on this computer.</p>
-    <div id="who" style="margin-top:12px;display:grid;gap:10px"></div></section>
-  <section class="panel"><h2>Data by app</h2>
+  <section class="panel"><h2>Apps</h2>
+    <div class="tabs" id="appTabs" role="tablist">
+      <button type="button" class="tab on" data-tab="all">All <i id="cAll">0</i></button>
+      <button type="button" class="tab" data-tab="allowed">Allowed <i id="cAllowed">0</i></button>
+      <button type="button" class="tab" data-tab="blocked">Blocked <i id="cBlocked">0</i></button>
+    </div>
     <div class="sub" id="appsNote">Loading&hellip;</div>
-    <div class="apphead" id="appsHead" hidden><span>App</span><span>Share of this cycle</span><span>Today</span><span>This cycle</span><span></span></div>
+    <div class="apphead" id="appsHead" hidden><span>Application name</span><span>Status</span><span>Today</span><span>This cycle</span><span></span></div>
     <div id="apps"></div></section>
 </div>
 
@@ -686,27 +707,6 @@ async function post(path, body) {
   return j;
 }
 
-async function who() {
-  const b = $("#whoBtn"), box = $("#who"); b.disabled = true; b.textContent = "Measuring\u2026";
-  try {
-    const j = await (await fetch("/api/top")).json();
-    if (j.error) throw new Error(j.error);
-    box.replaceChildren();
-    txt("#whoNote", !j.supported ? "The per-app view only works on Windows."
-      : !j.items.length ? "Nothing noticeable is using the network right now."
-      : "Estimated from per-app activity over " + j.window + " s, relative rather than exact bytes.");
-    j.items.forEach(it => {
-      const row = mk("div", "row"), m = mk("div", "track"), i = mk("i");
-      i.style.width = Math.max(3, it.share * 100) + "%"; m.appendChild(i);
-      row.append(mk("span", "", it.name + (it.pids > 1 ? " \u00d7" + it.pids : "")), m, mk("span", "sub", "\u2248 " + sz(it.rate) + "/s"));
-      box.appendChild(row);
-    });
-    if (j.blind && j.blind.length) box.appendChild(mk("div", "sub", "Couldn't read: " + j.blind.join(", ") + ". Run DataGuard as administrator to include system services such as Windows Update."));
-  } catch (e) { txt("#whoNote", "Couldn't measure: " + e.message); }
-  b.disabled = false; b.textContent = "Measure again";
-}
-$("#whoBtn").onclick = who;
-
 let blockBusy = false, appsFlash = "";
 async function toggleBlock(btn, name, on) {
   if (blockBusy) return;
@@ -730,8 +730,7 @@ function buildAppRow(r, days, share) {
   ic.src = "/api/app_icon?name=" + encodeURIComponent(r.app);
   ic.onerror = () => { ic.onerror = null; ic.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"; };
   nm.append(ic, document.createTextNode(r.app));
-  const m = mk("div", "track"); m.appendChild(mk("i"));
-  s.append(nm, m, mk("span", "v1"), mk("span", "v2"));
+  s.append(nm, mk("span", "st"), mk("span", "v1"), mk("span", "v2"));
   const lbl = mk("div", "daylbl");
   lbl.append(mk("span"), mk("span", "", "last 30 days"), mk("span"));
   d.append(s, mk("div", "days"), lbl);
@@ -743,9 +742,10 @@ function syncAppRow(d, r, days, share) {
   const s = d.querySelector("summary");
   s.querySelector(".v1").textContent = sz(r.today);
   s.querySelector(".v2").textContent = sz(r.cycle);
-  s.querySelector(".track i").style.width = Math.max(2, r.cycle / share * 100) + "%";
+  const st = s.querySelector(".st"); st.textContent = r.blocked ? "Blocked" : "Allowed"; st.className = "st" + (r.blocked ? " bad" : "");
   let b = s.querySelector("button.blk");
   if (!b) { b = mk("button", "blk"); b.type = "button"; s.appendChild(b); }
+  d.classList.toggle("isblk", !!r.blocked);
   b.className = "blk" + (r.blocked ? " on" : "");
   b.textContent = r.blocked ? "Unblock" : "Block internet";
   b.title = (r.blocked ? "Allow " : "Block ") + r.app + " to use the internet";
@@ -766,14 +766,36 @@ function syncAppRow(d, r, days, share) {
   lbl[2].textContent = days.length ? dstr(days[days.length - 1]) : "";
 }
 
+let appTab = "all", lastApps = null;
+document.querySelectorAll(".tab").forEach(t => { t.onclick = () => {
+  appTab = t.dataset.tab;
+  document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x === t));
+  if (lastApps) renderApps(lastApps);
+}; });
+
 function renderApps(a) {
+  lastApps = a;
   const box = $("#apps"), note = $("#appsNote"), head = $("#appsHead");
   if (!a.supported) { head.hidden = true; box.replaceChildren(); note.textContent = "Per-app history only works on Windows."; return; }
   note.textContent = appsFlash || (a.err ? "Tracker problem: " + a.err
     : "Estimated from per-app I/O counters while DataGuard runs: an approximation, not exact network bytes.");
-  const rows = (a.apps || []).slice(0, 15), days = a.days || [];
+  const all = (a.apps || []).slice(), days = a.days || [];
+  const known = new Set(all.map(r => r.app));
+  (Array.isArray(a.blocked) ? a.blocked : []).forEach(n => {
+    n = typeof n === "string" ? n : (n && n.app) || "";
+    if (n && !known.has(n)) { known.add(n); all.push({app: n, today: 0, cycle: 0, days: {}, blocked: true}); }
+  });
+  const blocked = all.filter(r => r.blocked), allowed = all.filter(r => !r.blocked);
+  txt("#cAll", String(Math.max(a.count || 0, all.length)));
+  txt("#cAllowed", String(allowed.length));
+  txt("#cBlocked", String(blocked.length));
+  const rows = appTab === "blocked" ? blocked : appTab === "allowed" ? allowed : all;
   head.hidden = !rows.length;
-  if (!rows.length) { box.replaceChildren(mk("div", "sub", "Nothing recorded yet; totals build up in the background.")); return; }
+  if (!rows.length) {
+    const msg = appTab === "blocked" ? "No apps are blocked. Open the All tab and press \u201cBlock internet\u201d on any app."
+      : "Nothing recorded yet; totals build up in the background.";
+    box.replaceChildren(mk("div", "bempty", msg)); return;
+  }
   const share = a.total_cycle || 1;
   const have = Array.from(box.querySelectorAll(":scope > details.approw"));
   const same = have.length === rows.length && rows.every((r, n) => have[n].dataset.app === r.app);
@@ -782,10 +804,6 @@ function renderApps(a) {
     const open = new Set(have.filter(d => d.open).map(d => d.dataset.app));
     box.replaceChildren(...rows.map(r => { const d = buildAppRow(r, days, share); if (open.has(r.app)) d.open = true; return d; }));
   }
-  const more = a.count > rows.length ? a.count + " apps recorded this cycle, showing the top " + rows.length + "." : "";
-  let foot = box.querySelector(":scope > .sub");
-  if (more) { if (!foot) { foot = mk("div", "sub"); box.appendChild(foot); } foot.textContent = more; }
-  else if (foot) foot.remove();
 }
 
 let saveT = 0, saveSeq = 0;
