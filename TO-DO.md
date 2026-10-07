@@ -6,3 +6,5 @@
 - [x] add Ci github
 - [x] add setup.exe that auto starts when pc turns on.
 - [x] remove feature that auto checks update, the app shouldn't use internet at all, even it's python.exe (updater deleted; only call left is localhost. The installed app also gets firewall rules that block its own python*.exe from the internet, loopback kept for the dashboard)
+- []  blocked apps, should be only blocked if it's connected to the concerned wi-fi
+- [] ram usage is still not accurate
