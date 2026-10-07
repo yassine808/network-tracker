@@ -123,6 +123,50 @@ def _library_roots():
 
 
 
+SUITE = re.compile(r"[\\/](avast software|avg)[\\/]", re.I)  # security suites: one product, many .exe
+
+
+def _service_path(name):
+    """Path of a Windows service whose program is `name` (AvastSvc.exe runs as a protected
+    service: psutil can't read its path and it lives outside the folders we index first)."""
+    if not IS_WIN or not name:
+        return ""
+    try:
+        for svc in psutil.win_service_iter():
+            try:
+                b = (svc.binpath() or "").strip()
+            except (psutil.Error, OSError):
+                continue
+            m = re.match(r'"([^"]+)"', b) or re.match(r"(.+?\.exe)", b, re.I)
+            p = m.group(1) if m else ""
+            if p and os.path.basename(p).lower() == name.lower() and os.path.isfile(p):
+                return p
+    except (psutil.Error, OSError, AttributeError):
+        pass
+    return ""
+
+
+def _suite_members(exe):
+    """[(name, path)] for every program of the same security suite as `exe` (its folder and two
+    levels below). Avast talks to the internet from many processes (AvastSvc, AvastUI, instup,
+    aswEngSrv, wsc_proxy...); blocking just one leaves the others online."""
+    if not exe or not SUITE.search(exe):
+        return []
+    root, out = os.path.dirname(exe), {}
+    try:
+        for dp, dn, fn in os.walk(root):
+            if dp.count(os.sep) - root.count(os.sep) >= 2:
+                dn[:] = []
+            for f in fn:
+                if f.lower().endswith(".exe") and "unins" not in f.lower():
+                    out.setdefault(f, os.path.join(dp, f))
+            if len(out) >= 25:
+                break
+    except OSError:
+        pass
+    return list(out.items())
+
+
 HELPERS = {"msedgewebview2.exe"}  # their network traffic belongs to the host app (WhatsApp, Teams...)
 
 
@@ -361,7 +405,7 @@ class AppTracker(threading.Thread):
         miss = self._no_path.get(name)
         if miss is not None and time.time() - miss < self.MISS_TTL:
             return ""
-        p = self._find_live(name) or _guess_path(name) or self._indexed(name)
+        p = self._find_live(name) or _guess_path(name) or _service_path(name) or self._indexed(name)
         if p:
             self.paths[name] = p
             self._no_path.pop(name, None)
@@ -449,6 +493,15 @@ class AppTracker(threading.Thread):
         except (OSError, ValueError):
             return set()
 
+    def group(self, name):
+        """[(name, exe)] that blocking `name` must cover: the app itself, plus (security suites
+        such as Avast) every sibling program of the same product."""
+        exe = self.exe(name)
+        members = {name: exe}
+        for n, p in _suite_members(exe):
+            members.setdefault(n, p)
+        return list(members.items())
+
     def set_blocked(self, name, on):
         """(ok, message): remember the user's choice on disk; the Windows rule changes only
         while the network gate is open (`allowed`). Off that network the choice is recorded
@@ -458,19 +511,31 @@ class AppTracker(threading.Thread):
         if not self.supported:
             return False, "per-app blocking runs on Windows only"
         from . import firewall
+        members = self.group(name)
         if on:
-            exe = self.exe(name)  # recorded, live, or guessed: never a blind "" (see exe)
+            exe = dict(members).get(name)
             ok, err = firewall.can_block(name, exe)
             if not ok:
                 return False, err
-            if self.allowed():  # gate closed: intent only - sync_blocks applies it on the Wi-Fi
-                ok, err = firewall.block_app(name, exe)
-                if not ok:
-                    return False, err
-        elif firewall.has_block(name):
-            ok, err = firewall.unblock_app(name)
-            if not ok:
-                return False, err
+            if self.allowed():
+                if len(members) == 1:
+                    ok, err = firewall.block_app(name, exe)
+                    if not ok:
+                        return False, err
+                else:  # a suite: all its programs in ONE change (one Windows prompt)
+                    items = [(n, p, True) for n, p in members if p]
+                    res = {n: (ok, msg) for n, ok, msg in firewall.sync_app_blocks(items)}
+                    for n, (ok, msg) in res.items():
+                        if not ok:
+                            logging.warning("firewall: %s: %s", n, msg)
+                    if not res.get(name, (False, ""))[0]:
+                        return False, res.get(name, (False, "could not block"))[1] or "could not block"
+        else:
+            for n, _ in members:
+                if firewall.has_block(n):
+                    ok, err = firewall.unblock_app(n)
+                    if not ok and n == name:
+                        return False, err
         if on:
             self.blocked.add(name)
         else:
@@ -495,8 +560,11 @@ class AppTracker(threading.Thread):
         if gate is None:
             return
         from . import firewall
-        items = [(name, self.exe(name), bool(gate)) for name in sorted(self.blocked)]
-        for name, ok, err in firewall.sync_app_blocks(items):
+        items = {}
+        for name in sorted(self.blocked):
+            for n, p in self.group(name):
+                items.setdefault(n, (n, p, bool(gate)))
+        for name, ok, err in firewall.sync_app_blocks(list(items.values())):
             if not ok:
                 logging.warning("firewall: %s: %s", name, err)
 

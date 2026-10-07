@@ -80,7 +80,7 @@ def _run_ps(path):
         try:
             r = subprocess.run([_powershell(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path],
                                capture_output=True, text=True, errors="replace",
-                               timeout=90, creationflags=NO_WINDOW)
+                               timeout=300, creationflags=NO_WINDOW)
             return r.returncode, (r.stdout or "") + (r.stderr or "")
         except (OSError, subprocess.SubprocessError):
             return 1, ""
@@ -191,6 +191,30 @@ def _wfp_child(src):
             "  Remove-Item -LiteralPath $w -Force -ErrorAction SilentlyContinue\n" % blob)
 
 
+_RESET_TCP = r"""  try {
+    if (-not ('DgTcp' -as [type])) {
+      Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class DgTcp { [StructLayout(LayoutKind.Sequential)] public struct ROW { public uint state; public uint la; public uint lp; public uint ra; public uint rp; } [DllImport("iphlpapi.dll")] public static extern int SetTcpEntry(ref ROW r); }'
+    }
+    $ids = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -eq $exe } | ForEach-Object { $_.ProcessId })
+    if ($ids.Count) {
+      foreach ($c in @(Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue | Where-Object { ($ids -contains $_.OwningProcess) -and ($_.LocalAddress -notmatch ':') })) {
+        $r = New-Object DgTcp+ROW
+        $r.state = 12
+        $r.la = [BitConverter]::ToUInt32(([IPAddress]$c.LocalAddress).GetAddressBytes(), 0)
+        $r.ra = [BitConverter]::ToUInt32(([IPAddress]$c.RemoteAddress).GetAddressBytes(), 0)
+        $lp = [int]$c.LocalPort; $rp = [int]$c.RemotePort
+        $r.lp = [uint32]((($lp -shl 8) -band 0xFF00) -bor (($lp -shr 8) -band 0xFF))
+        $r.rp = [uint32]((($rp -shl 8) -band 0xFF00) -bor (($rp -shr 8) -band 0xFF))
+        [void][DgTcp]::SetTcpEntry([ref]$r)
+      }
+    }
+  } catch { Add-Content -LiteralPath $out -Value $_.Exception.Message }
+"""
+# A block filter only judges NEW connections. A long-lived connection that was already open
+# (Avast keeps several to its cloud) would keep flowing, so the elevated block script also
+# resets the program's existing IPv4 connections right after the filters are in place.
+
+
 def _block_script(exe, rule):
     """Elevated script: every layer is tried independently, success if any layer holds."""
     return (
@@ -232,7 +256,7 @@ def _block_script(exe, rule):
         "  }\n"
         # ---- layer 2: WFP filter (independent of the firewall profile state) -----------
         % (_q(rule), _q(exe))
-    ) + _wfp_child(wfp.add_script(exe, rule)) + (
+    ) + _wfp_child(wfp.add_script(exe, rule)) + _RESET_TCP + (
         "  if ($fw -or $wfpCode -eq 0) { exit 0 }\n"
         "  Add-Content -LiteralPath $out -Value 'no blocking layer could be installed'\n"
         "  exit 5\n")
