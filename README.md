@@ -52,9 +52,9 @@ Current version: **1.2.1** (`dataguard/__init__.py`)
 
 ### Option A — the installer (recommended)
 
-1. Download `DataGuard-Setup-<version>.exe` from the
+1. Download `DataGuard-Setup-v<version>.exe` from the
    [GitHub Releases page](https://github.com/yassine808/network-tracker/releases)
-   (current: `DataGuard-Setup-1.2.1.exe`).
+   (current: `DataGuard-Setup-v1.2.1.exe`).
 2. Run it. It installs per-user into `%LOCALAPPDATA%\Programs\DataGuard` — **no admin rights needed**.
 3. Finish the wizard. **"Start DataGuard now"** is pre-checked, so DataGuard starts and opens the
    dashboard. Auto-start at every login is set up for you (no checkbox to miss). Silent installs
@@ -83,7 +83,7 @@ native window and tray icon.
 
 ### Option C — portable zip
 
-Grab `dataguard-<version>.zip` from Releases, unpack it, and run `python dataguard.py run --open`
+Grab `dataguard-v<version>.zip` from Releases, unpack it, and run `python dataguard.py run --open`
 with any Python 3.8+ that has `psutil`.
 
 ---
