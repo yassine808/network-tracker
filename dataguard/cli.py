@@ -142,7 +142,8 @@ def cmd_run(args, home):
                     webbrowser.open(url)  # the running copy could not show a window
                 return 0
             time.sleep(0.75)
-    tracker = AppTracker(AppStore(home), allowed=lambda: bool(mon.counting))  # only on the configured network
+    # allowed: the meter's network flag - None until known, True only on the configured Wi-Fi
+    tracker = AppTracker(AppStore(home), allowed=lambda: mon.counting)
     Handler.tracker = tracker
     threading.Thread(target=server.serve_forever, daemon=True).start()
     tracker.start()

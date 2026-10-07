@@ -108,7 +108,8 @@ Open `http://127.0.0.1:8787` (or the app window / tray icon). Keyboard shortcuts
 
 - **Who's using data right now?** — press *Measure (3 s)* for a ranked estimate of active programs.
 - **Data by app** — per-app totals for today / this cycle / 30 days, each row expandable to a 30-day
-  bar chart, with a **Block internet** button per app (writes real Windows Firewall + WFP rules).
+  bar chart, with a **Block internet** button per app (writes real Windows Firewall + WFP rules —
+  each block lives only on the configured Wi-Fi and steps aside anywhere else).
 
 ### Settings
 

@@ -227,7 +227,11 @@ class AppStore:
 class AppTracker(threading.Thread):
     """Sums each program's I/O delta every INTERVAL seconds while DataGuard runs.
     `allowed` says whether bytes are recorded - the dashboard passes the monitor's
-    "are we on the configured network" flag, so the Apps page follows the meter's rule."""
+    "are we on the configured network" flag, so the Apps page follows the meter's rule.
+    The same flag gates the Windows block rules: a remembered block lives only on that
+    network (every network when no Wi-Fi is configured), and elsewhere the choice is
+    kept on disk until the network is back. `allowed` returning None means the meter
+    has not learned which network we're on - then Windows is left alone."""
 
     INTERVAL = 15
     FLUSH_EVERY = 60
@@ -354,7 +358,27 @@ class AppTracker(threading.Thread):
             return set()
 
     def set_blocked(self, name, on):
-        """Remember the user's choice on disk (the rules themselves live in Windows)."""
+        """(ok, message): remember the user's choice on disk; the Windows rule changes only
+        while the network gate is open (`allowed`). Off that network the choice is recorded
+        and sync_blocks applies it when the configured Wi-Fi returns; validation (a real
+        file, never a system service) always runs, and the set is only updated after
+        Windows has accepted the change - a rejected block is never remembered."""
+        if not self.supported:
+            return False, "per-app blocking runs on Windows only"
+        from . import firewall
+        if on:
+            exe = self.exe(name)  # recorded, live, or guessed: never a blind "" (see exe)
+            ok, err = firewall.can_block(name, exe)
+            if not ok:
+                return False, err
+            if self.allowed():  # gate closed: intent only - sync_blocks applies it on the Wi-Fi
+                ok, err = firewall.block_app(name, exe)
+                if not ok:
+                    return False, err
+        elif firewall.has_block(name):
+            ok, err = firewall.unblock_app(name)
+            if not ok:
+                return False, err
         if on:
             self.blocked.add(name)
         else:
@@ -365,38 +389,45 @@ class AppTracker(threading.Thread):
             tmp.replace(self.blocked_file)
         except OSError as e:
             logging.warning("apps: could not save the blocked list: %s", e)
+        return True, ""
 
-    def _reapply_blocks(self):
-        """Make sure every remembered block still exists in the firewall. Rules normally
-        survive reboots (read-only check, no prompt); a missing or stale one - an app
-        update moved the file, or the firewall was reset - is rebuilt."""
-        if not IS_WIN or not self.blocked:
+    def sync_blocks(self):
+        """Bring Windows in line with the remembered blocks and the current network gate:
+        on the configured Wi-Fi every remembered block must exist (rebuild it if an app
+        moved or the firewall was reset); anywhere else none of them may - the choice
+        stays on disk and comes back with the hotspot. The gate is read fresh here;
+        None (the meter has not learned the network yet) leaves Windows alone."""
+        if not self.supported or not self.blocked:
+            return
+        gate = self.allowed()
+        if gate is None:
             return
         from . import firewall
-        for name in sorted(self.blocked):
-            exe = self.exe(name)
-            try:
-                ok, err = firewall.ensure_block(name, exe)
-            except Exception as e:
-                ok, err = False, f"{type(e).__name__}: {e}"
-            logging.info("firewall: re-applied block for %s: %s",
-                         name, "ok" if ok else f"failed ({err})")
+        items = [(name, self.exe(name), bool(gate)) for name in sorted(self.blocked)]
+        for name, ok, err in firewall.sync_app_blocks(items):
+            if not ok:
+                logging.warning("firewall: %s: %s", name, err)
 
     def run(self):
         if not self.supported:
             return
         self._start_index()  # so the first page load finds icons, not a disk walk
-        try:
-            self._reapply_blocks()
-        except Exception as e:  # never let firewall upkeep stop the tracker
-            logging.warning("apps: re-applying blocks failed: %s", e)
+        gate = None  # None = the network is still unknown; judged on the first ticks
         while not self.stop_event.is_set():
             try:
                 self.tick()
+                now = self.allowed()
+                if now is not None and now != gate:
+                    gate = now
+                    self.sync_blocks()
+                    logging.info("firewall: network gate %s - remembered blocks %s",
+                                 "opened" if gate else "closed",
+                                 "are in place" if gate else "are removed until the Wi-Fi returns")
                 self.err = ""
-            except Exception as e:
+            except Exception as e:  # never let a hiccup stop the tracker
                 self.err = f"{type(e).__name__}: {e}"
-            self.stop_event.wait(self.INTERVAL)
+            # while the network is unknown, judge again quickly instead of waiting a full tick
+            self.stop_event.wait(self.INTERVAL if gate is not None else 1.0)
         self.store.flush(force=True)
 
     def stop(self):
@@ -439,5 +470,6 @@ class AppTracker(threading.Thread):
         data = self.store.snapshot(cycle_start, today)
         for r in data["apps"]:
             r["blocked"] = r["app"] in self.blocked
+            r["blocked_here"] = r["blocked"] and bool(self.allowed())  # enforced on this network right now
         data.update(supported=self.supported, interval=self.INTERVAL, err=self.err)
         return data

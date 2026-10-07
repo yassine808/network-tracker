@@ -141,23 +141,18 @@ class Handler(BaseHTTPRequestHandler):
                 if self.tracker is not None:
                     self.tracker.store.clear_since(start)
             elif path == "/api/block_app":
-                from . import firewall  # Windows-only helper; the routes below fail politely elsewhere
                 if self.tracker is None:
                     raise ValueError("the per-app tracker is not running")
                 name = str(body.get("app") or "")
                 if not name:
                     raise ValueError("no app given")
-                if body.get("on"):
-                    exe = self.tracker.exe(name)  # recorded, live, or guessed: never a blind "" (see apps.exe)
-                    ok, err = firewall.block_app(name, exe)
-                    if not ok:
-                        raise ValueError(err)
-                    self.tracker.set_blocked(name, True)
-                else:
-                    ok, err = firewall.unblock_app(name)
-                    if not ok:
-                        raise ValueError(err)
-                    self.tracker.set_blocked(name, False)
+                on = bool(body.get("on"))
+                ok, err = self.tracker.set_blocked(name, on)
+                if not ok:
+                    raise ValueError(err)
+                # `active`: Windows enforces the block RIGHT NOW - false when the choice was
+                # only remembered because this isn't the configured Wi-Fi (it applies there)
+                return self._json({"ok": True, "active": on and bool(self.tracker.allowed())})
             elif path == "/api/kill":
                 if body.get("skip"):  # the "about to be cut" warning was ignored: hands off until tomorrow
                     self.mon.skip_kill_today()

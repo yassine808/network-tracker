@@ -729,8 +729,12 @@ async function toggleBlock(btn, name, on) {
   if (blockBusy) return;
   blockBusy = true; btn.disabled = true; btn.textContent = "Waiting\u2026";
   try {
-    await post("/api/block_app", {app: name, on: on});
-    appsFlash = (on ? "Blocked internet for " : "Allowed ") + name + ".";
+    const j = await post("/api/block_app", {app: name, on: on});
+    const ssid = typeof ST === "object" && ST && ST.cfg ? ST.cfg.ssid : "";
+    appsFlash = !on ? "Allowed " + name + "."
+      : j.active === false
+        ? "Will block " + name + (ssid ? " on \u201c" + ssid + "\u201d" : " on the configured Wi-Fi") + " - this network isn't it."
+      : "Blocked internet for " + name + ".";
     toast(appsFlash);
     if (on) sfx.block(); else sfx.allow();
   } catch (e) { appsFlash = name + ": " + e.message; toast(appsFlash, "err"); }
@@ -768,7 +772,10 @@ function syncAppRow(d, r, days, max) {
   d.classList.toggle("isblk", !!r.blocked);
   b.className = "blk" + (r.blocked ? " on" : "");
   b.textContent = r.blocked ? "Unblock" : "Block internet";
-  b.title = (r.blocked ? "Allow " : "Block ") + r.app + " to use the internet";
+  b.title = (r.blocked ? "Allow " : "Block ") + r.app + " to use the internet"
+    + (r.blocked && r.blocked_here === false
+        ? " - the block lives only on the configured Wi-Fi, and this network isn't it"
+        : "");
   b.disabled = blockBusy;
   b.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); toggleBlock(b, r.app, !r.blocked); };
   const barsBox = d.querySelector(".days"), top = Math.max(...Object.values(r.days), 1);

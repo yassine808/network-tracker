@@ -249,13 +249,22 @@ def _unblock_script(rule):
     ) + _wfp_child(wfp.remove_script(rule)) + "  exit $wfpCode\n"
 
 
-def block_app(name, exe):
-    """Stop one program from reaching the internet. (ok, message)."""
+def can_block(name, exe):
+    """(ok, message): whether this program may be blocked at all - its file must be found
+    and it must never be a Windows system service (blocking one could break the PC)."""
     if not exe:
         return False, "the program's file could not be found"
     base = exe.replace("\\", "/").rsplit("/", 1)[-1].lower()
     if name.lower() in _SYSTEM_LOWER or base in _SYSTEM_LOWER:
         return False, "that is a Windows system service - blocking it could break the PC"
+    return True, ""
+
+
+def block_app(name, exe):
+    """Stop one program from reaching the internet. (ok, message)."""
+    ok, msg = can_block(name, exe)
+    if not ok:
+        return False, msg
     rule = _rule_name(name)
     ok, msg = _apply([["PS", _block_script(exe, rule)]])
     if not ok:
@@ -295,6 +304,74 @@ def unblock_app(name):
     if _rule_program(rule)[0]:
         return False, msg or "Windows Firewall still has the block rule"
     return ok, msg
+
+
+def has_block(name):
+    """True when Windows still enforces a block for this app (firewall rule or WFP filter).
+    Read-only, never prompts; a filter state that cannot be read counts as present, so
+    cleanup never skips a block that might be there."""
+    if not sys.platform.startswith("win"):
+        return False
+    rule = _rule_name(name)
+    return _rule_program(rule)[0] or wfp.present(rule) is not False
+
+
+def _child(src):
+    """PowerShell lines that run `src` in its OWN powershell child process - the sources
+    built for block/unblock `exit` themselves and would end the whole script otherwise
+    (the same trick as _wfp_child)."""
+    blob = base64.b64encode(("\ufeff" + src).encode("utf-8")).decode("ascii")
+    return ("  $c = Join-Path $env:TEMP ('dg-run-' + [guid]::NewGuid().ToString('N') + '.ps1')\n"
+            "  [IO.File]::WriteAllBytes($c, [Convert]::FromBase64String('%s'))\n"
+            "  & powershell -NoProfile -ExecutionPolicy Bypass -File $c *>> $out\n"
+            "  Remove-Item -LiteralPath $c -Force -ErrorAction SilentlyContinue\n" % blob)
+
+
+def sync_app_blocks(items):
+    """(name, ok, message) for every (name, exe, block) entry of items. States are compared
+    read-only first and only the differences are written - all of them in ONE change, so a
+    network flip costs at most one Windows prompt when DataGuard is not elevated, and none
+    when every state already matches. The read-only re-check after the change is the
+    verdict: the batch's single exit code cannot say which layer took on which app."""
+    if not sys.platform.startswith("win"):
+        return [(n, False, "per-app blocking runs on Windows only") for n, _, _ in items]
+    verdicts, todo = {}, []
+    for name, exe, block in items:
+        rule = _rule_name(name)
+        try:
+            if block:
+                exists, program = _rule_program(rule)
+                if (exists and (not program or os.path.normcase(program) == os.path.normcase(exe))
+                        and wfp.present(rule) is not False):
+                    verdicts[name] = (True, "")  # already in place: nothing to ask Windows for
+                    continue
+                ok, msg = can_block(name, exe)
+                if not ok:
+                    verdicts[name] = (False, msg)
+                    continue
+            elif not has_block(name):
+                verdicts[name] = (True, "")
+                continue
+            todo.append((name, exe, block, rule))
+        except Exception as e:
+            verdicts[name] = (False, f"{type(e).__name__}: {e}")
+    if todo:
+        logging.info("firewall: syncing %d block state(s) in one change (%d on, %d off)",
+                     len(todo), sum(1 for t in todo if t[2]), sum(1 for t in todo if not t[2]))
+        src = "".join(_child(_block_script(exe, rule) if block else _unblock_script(rule))
+                      for _, exe, block, rule in todo)
+        _apply([["PS", src]])  # the read-only re-check below decides, not this exit code
+        for name, exe, block, rule in todo:
+            try:
+                if block:
+                    ok = _rule_program(rule)[0] or wfp.present(rule) is not False
+                    verdicts[name] = (True, "") if ok else (False, "Windows did not keep the block")
+                else:
+                    ok = not has_block(name)
+                    verdicts[name] = (True, "") if ok else (False, "Windows still has the block")
+            except Exception as e:
+                verdicts[name] = (False, f"{type(e).__name__}: {e}")
+    return [(n, *verdicts.get(n, (False, "state was not checked"))) for n, _, _ in items]
 
 
 def cut_active():
