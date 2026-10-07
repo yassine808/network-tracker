@@ -221,7 +221,7 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
 /* apps page */
 [data-p="apps"]{max-width:880px;width:100%;margin:0 auto}
 [data-p="apps"] .panel{padding:20px 22px;border-radius:18px}
-.apptop{display:flex;justify-content:center;margin-bottom:6px}
+.apptop{display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:6px}
 .tabs{display:inline-flex;gap:4px;padding:5px;border-radius:99px;background:var(--panel2);border:1px solid var(--line)}
 .tab{border:0;background:transparent;color:var(--mute);font-weight:600;padding:8px 18px;border-radius:99px;display:inline-flex;align-items:center;gap:9px}
 .tab:hover{color:var(--ink);border:0}
@@ -230,6 +230,10 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
 .tab.on i{background:#0b1020;color:var(--acc)}
 .tab[data-tab="blocked"].on{background:var(--bad)}
 .tab[data-tab="blocked"].on i{color:var(--bad)}
+.sorts{display:inline-flex;gap:4px;padding:5px;border-radius:99px;background:var(--panel2);border:1px solid var(--line)}
+.sg{border:0;background:transparent;color:var(--mute);font-weight:600;font-size:12.5px;padding:8px 15px;border-radius:99px}
+.sg:hover{color:var(--ink)}
+.sg.on{background:var(--panel);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}
 #appsNote{text-align:center;font-size:12px;color:var(--faint);margin:4px 0 8px}
 .apphead{padding:12px 14px 8px;font-size:11.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
 .approw{border:1px solid transparent;border-radius:12px;padding:0 14px;margin-top:2px}
@@ -240,8 +244,9 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
 .approw .aic{width:28px;height:28px;margin-right:12px;border-radius:8px;padding:3px;flex:none;vertical-align:middle}
 .approw .car{margin-right:8px}
 .approw .v2{font-weight:600;color:var(--ink)}
-.st{justify-self:start;font-size:12px;font-weight:600;padding:3px 11px;border-radius:99px;background:color-mix(in srgb,var(--ok) 14%,transparent);color:var(--ok)}
-.st.bad{background:color-mix(in srgb,var(--bad) 14%,transparent);color:var(--bad)}
+.ubar{position:relative;height:8px;border-radius:99px;background:var(--line);overflow:hidden}
+.ubar i{position:absolute;top:0;bottom:0;left:0;width:0;border-radius:99px;background:var(--acc);transition:width .3s ease}
+.approw.isblk .ubar i{background:var(--bad)}
 .approw.isblk .nm{color:var(--bad)}
 .blk{border-radius:99px;padding:6px 14px}
 .blk:hover{border-color:var(--bad);color:var(--bad)}
@@ -257,7 +262,7 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
   .hl{display:none}
   .cards{grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
 }
-@media(max-width:560px){.apphead,.approw summary{grid-template-columns:minmax(80px,1fr) 60px 70px 104px}.apphead span:nth-child(2),.approw summary .st{display:none}}
+@media(max-width:560px){.apphead,.approw summary{grid-template-columns:minmax(80px,1fr) 60px 70px 104px}.apphead span:nth-child(2),.approw summary .ubar{display:none}}
 
 #toast{position:fixed;right:24px;bottom:24px;max-width:340px;padding:11px 16px;border-radius:12px;background:var(--panel2);border:1px solid var(--line);box-shadow:0 14px 40px rgba(0,0,0,.5);font-size:13.5px;z-index:90;opacity:0;transform:translateY(12px);transition:opacity .25s,transform .25s}
 #toast.show{opacity:1;transform:none}
@@ -362,9 +367,13 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
       <button type="button" class="tab on" data-tab="all">All <i id="cAll">0</i></button>
       <button type="button" class="tab" data-tab="allowed">Allowed <i id="cAllowed">0</i></button>
       <button type="button" class="tab" data-tab="blocked">Blocked <i id="cBlocked">0</i></button>
+    </div>
+    <div class="sorts" id="appSorts" role="group" aria-label="Sort applications by">
+      <button type="button" class="sg" data-sort="today">Today</button>
+      <button type="button" class="sg on" data-sort="cycle">This cycle</button>
     </div></div>
     <div class="sub" id="appsNote">Loading&hellip;</div>
-    <div class="apphead" id="appsHead" hidden><span>Application name</span><span>Status</span><span>Today</span><span>This cycle</span><span></span></div>
+    <div class="apphead" id="appsHead" hidden><span>Application name</span><span>Usage</span><span>Today</span><span>This cycle</span><span></span></div>
     <div id="apps"></div></section>
 </div>
 
@@ -730,7 +739,7 @@ async function toggleBlock(btn, name, on) {
   tick();
 }
 
-function buildAppRow(r, days) {
+function buildAppRow(r, days, max) {
   const d = mk("details", "approw"); d.dataset.app = r.app;
   const s = mk("summary"), nm = mk("span", "nm");
   nm.append(mk("span", "car", "\u25b8"));
@@ -738,19 +747,22 @@ function buildAppRow(r, days) {
   ic.src = "/api/app_icon?name=" + encodeURIComponent(r.app);
   ic.onerror = () => { ic.onerror = null; ic.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"; };
   nm.append(ic, document.createTextNode(r.app));
-  s.append(nm, mk("span", "st"), mk("span", "v1"), mk("span", "v2"));
+  const bar = mk("span", "ubar"); bar.append(mk("i"));
+  s.append(nm, bar, mk("span", "v1"), mk("span", "v2"));
   const lbl = mk("div", "daylbl");
   lbl.append(mk("span"), mk("span", "", "last 30 days"), mk("span"));
   d.append(s, mk("div", "days"), lbl);
-  syncAppRow(d, r, days);
+  syncAppRow(d, r, days, max);
   return d;
 }
 
-function syncAppRow(d, r, days) {
+function syncAppRow(d, r, days, max) {
   const s = d.querySelector("summary");
   s.querySelector(".v1").textContent = sz(r.today);
   s.querySelector(".v2").textContent = sz(r.cycle);
-  const st = s.querySelector(".st"); st.textContent = r.blocked ? "Blocked" : "Allowed"; st.className = "st" + (r.blocked ? " bad" : "");
+  const v = appSort === "today" ? r.today : r.cycle, bar = s.querySelector(".ubar");
+  bar.querySelector("i").style.width = (max > 0 ? Math.min(100, v / max * 100) : 0) + "%";
+  bar.title = (appSort === "today" ? "Today: " : "This cycle: ") + sz(v);
   let b = s.querySelector("button.blk");
   if (!b) { b = mk("button", "blk"); b.type = "button"; s.appendChild(b); }
   d.classList.toggle("isblk", !!r.blocked);
@@ -774,10 +786,15 @@ function syncAppRow(d, r, days) {
   lbl[2].textContent = days.length ? dstr(days[days.length - 1]) : "";
 }
 
-let appTab = "all", lastApps = null;
+let appTab = "all", appSort = "cycle", lastApps = null;
 document.querySelectorAll(".tab").forEach(t => { t.onclick = () => {
   appTab = t.dataset.tab;
   document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x === t));
+  if (lastApps) renderApps(lastApps);
+}; });
+document.querySelectorAll("#appSorts .sg").forEach(b => { b.onclick = () => {
+  appSort = b.dataset.sort;
+  document.querySelectorAll("#appSorts .sg").forEach(x => x.classList.toggle("on", x === b));
   if (lastApps) renderApps(lastApps);
 }; });
 
@@ -798,6 +815,9 @@ function renderApps(a) {
   txt("#cAllowed", String(allowed.length));
   txt("#cBlocked", String(blocked.length));
   const rows = appTab === "blocked" ? blocked : appTab === "allowed" ? allowed : all;
+  rows.sort((x, y) => (y[appSort] || 0) - (x[appSort] || 0) || (y.cycle - x.cycle)
+    || String(x.app).localeCompare(String(y.app)));
+  const max = Math.max(1, ...rows.map(r => r[appSort] || 0));
   head.hidden = !rows.length;
   if (!rows.length) {
     const msg = appTab === "blocked" ? "No apps are blocked. Open the All tab and press \u201cBlock internet\u201d on any app."
@@ -806,10 +826,10 @@ function renderApps(a) {
   }
   const have = Array.from(box.querySelectorAll(":scope > details.approw"));
   const same = have.length === rows.length && rows.every((r, n) => have[n].dataset.app === r.app);
-  if (same) rows.forEach((r, n) => syncAppRow(have[n], r, days));
+  if (same) rows.forEach((r, n) => syncAppRow(have[n], r, days, max));
   else {
     const open = new Set(have.filter(d => d.open).map(d => d.dataset.app));
-    box.replaceChildren(...rows.map(r => { const d = buildAppRow(r, days); if (open.has(r.app)) d.open = true; return d; }));
+    box.replaceChildren(...rows.map(r => { const d = buildAppRow(r, days, max); if (open.has(r.app)) d.open = true; return d; }));
   }
 }
 
