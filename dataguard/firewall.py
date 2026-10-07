@@ -357,3 +357,4 @@ def seal_app(exes):
             return False, "Windows Firewall did not keep the self-block rule"
     logging.info("firewall: sealed DataGuard from the internet (%s)", ", ".join(exes))
     return True, ""
+    

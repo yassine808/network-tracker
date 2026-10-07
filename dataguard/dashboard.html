@@ -4,6 +4,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>DataGuard</title>
 <link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&family=Manrope:wght@300..700&family=Plus+Jakarta+Sans:wght@300..700&family=DM+Sans:wght@300..700&family=Outfit:wght@300..700&family=Space+Grotesk:wght@300..700&family=Sora:wght@300..700&display=swap" rel="stylesheet">
 <style>
 :root{color-scheme:dark;
 --bg:#0e0f12;--panel:#15171b;--panel2:#1a1d22;--line:#24272e;--ink:#eceef2;--mute:#8b919c;--faint:#5b616c;
@@ -158,9 +160,9 @@ input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
 .form{display:grid;gap:14px;margin:12px 0 0}
 
 /* settings cards */
-.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.cards{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
 .cards .panel{display:flex;flex-direction:column}
-.s2{grid-column:span 2}.s4{grid-column:span 4}
+.s2{grid-column:span 2}.s4{grid-column:span 4}.s6{grid-column:span 6}
 .savebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;position:sticky;bottom:0;padding:12px 18px;border-radius:14px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);backdrop-filter:blur(10px)}
 .savebar #msg{margin-left:auto}
 .cards .panel.dng{border-color:color-mix(in srgb,var(--bad) 35%,var(--line))}
@@ -173,11 +175,17 @@ input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
 .cards input[type=checkbox]{accent-color:var(--c)}
 .cards button:not(.danger):hover{border-color:var(--c);color:var(--c)}
 .cards .panel.dng{border-color:var(--line);border-top-color:var(--bad)}
-.setfoot{text-align:center;margin:4px 0 0}
+.setfoot{text-align:center;margin:0;font-size:12px}
 
-.cards .panel{padding:14px 16px}
+.cards .panel{padding:12px 14px}
 .cards h2{margin-bottom:8px}
-.cards .form{gap:10px;margin:0}
+.cards .form{gap:8px;margin:0}
+[data-p="settings"]{gap:10px}
+.fonts{display:flex;flex-wrap:wrap;gap:8px}
+.fchip{display:inline-flex;align-items:baseline;gap:8px;padding:7px 14px;border-radius:10px;font-size:14px}
+.fchip small{font-size:11px;color:var(--mute);font-family:var(--f)}
+.fchip.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 16%,var(--panel2))}
+@media(max-width:760px){.cards .panel{grid-column:span 6!important}}
 .form.two,.cards .two{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end}
 .cards input,.cards select{padding:7px 10px}
 .cards label{gap:4px}
@@ -198,7 +206,7 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
 /* apps */
 .row{display:grid;grid-template-columns:minmax(90px,170px) 1fr auto;gap:12px;align-items:center}
 .row .track{height:8px}
-.apphead,.approw summary{display:grid;grid-template-columns:minmax(120px,1fr) 90px 76px 88px 118px;gap:14px;align-items:center}
+.apphead,.approw summary{display:grid;grid-template-columns:minmax(140px,1fr) 96px 84px 96px 124px;gap:14px;align-items:center}
 .apphead{font-size:12px;color:var(--mute);padding:12px 0 6px}
 .apphead[hidden]{display:none}
 .apphead span:nth-child(n+3){text-align:right}
@@ -220,25 +228,34 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
 .daylbl{display:flex;justify-content:space-between;font-size:11.5px;color:var(--mute);padding:0 4px 10px}
 
 /* apps page */
-.tabs{display:inline-flex;gap:4px;padding:4px;border-radius:99px;background:var(--panel2);border:1px solid var(--line);margin:2px 0 10px}
-.tab{border:0;background:transparent;color:var(--mute);font-weight:600;padding:6px 14px;border-radius:99px;display:inline-flex;align-items:center;gap:8px}
+[data-p="apps"]{max-width:880px;width:100%;margin:0 auto}
+[data-p="apps"] .panel{padding:20px 22px;border-radius:18px}
+.apptop{display:flex;justify-content:center;margin-bottom:6px}
+.tabs{display:inline-flex;gap:4px;padding:5px;border-radius:99px;background:var(--panel2);border:1px solid var(--line)}
+.tab{border:0;background:transparent;color:var(--mute);font-weight:600;padding:8px 18px;border-radius:99px;display:inline-flex;align-items:center;gap:9px}
 .tab:hover{color:var(--ink);border:0}
-.tab i{font-style:normal;font-size:11.5px;min-width:24px;text-align:center;padding:1px 7px;border-radius:99px;background:var(--line);color:var(--ink)}
+.tab i{font-style:normal;font-size:11.5px;min-width:26px;text-align:center;padding:1px 8px;border-radius:99px;background:var(--line);color:var(--ink)}
 .tab.on{background:var(--acc);color:#0b1020}
 .tab.on i{background:#0b1020;color:var(--acc)}
 .tab[data-tab="blocked"].on{background:var(--bad)}
 .tab[data-tab="blocked"].on i{color:var(--bad)}
-.apphead{padding:12px 10px 6px}
-.approw{border-top:1px solid var(--line);padding:0 10px}
-.approw:hover,.approw[open]{background:var(--panel2)}
+#appsNote{text-align:center;font-size:12px;color:var(--faint);margin:4px 0 8px}
+.apphead{padding:12px 14px 8px;font-size:11.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.approw{border:1px solid transparent;border-radius:12px;padding:0 14px;margin-top:2px}
+.approw+.approw{border-top-color:transparent}
+.approw:hover,.approw[open]{background:var(--panel2);border-color:var(--line)}
 .approw summary{padding:12px 0}
-.st{justify-self:start;font-size:12px;font-weight:600;padding:2px 10px;border-radius:99px;background:color-mix(in srgb,var(--ok) 14%,transparent);color:var(--ok)}
+.approw .nm{font-weight:600;display:flex;align-items:center}
+.approw .aic{width:28px;height:28px;margin-right:12px;border-radius:8px;padding:3px;flex:none;vertical-align:middle}
+.approw .car{margin-right:8px}
+.approw .v2{font-weight:600;color:var(--ink)}
+.st{justify-self:start;font-size:12px;font-weight:600;padding:3px 11px;border-radius:99px;background:color-mix(in srgb,var(--ok) 14%,transparent);color:var(--ok)}
 .st.bad{background:color-mix(in srgb,var(--bad) 14%,transparent);color:var(--bad)}
 .approw.isblk .nm{color:var(--bad)}
-.blk{border-radius:99px;padding:5px 14px}
+.blk{border-radius:99px;padding:6px 14px}
 .blk:hover{border-color:var(--bad);color:var(--bad)}
 .blk.on:hover{border-color:var(--ok);color:var(--ok)}
-.bempty{color:var(--mute);padding:14px 10px}
+.bempty{color:var(--mute);padding:28px 10px;text-align:center}
 @media(max-width:1000px){
   body{overflow:auto}
   [data-p="main"]:not([hidden]){height:auto}
@@ -349,12 +366,12 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
 </div>
 
 <div data-p="apps" hidden>
-  <section class="panel"><h2>Apps</h2>
-    <div class="tabs" id="appTabs" role="tablist">
+  <section class="panel">
+    <div class="apptop"><div class="tabs" id="appTabs" role="tablist">
       <button type="button" class="tab on" data-tab="all">All <i id="cAll">0</i></button>
       <button type="button" class="tab" data-tab="allowed">Allowed <i id="cAllowed">0</i></button>
       <button type="button" class="tab" data-tab="blocked">Blocked <i id="cBlocked">0</i></button>
-    </div>
+    </div></div>
     <div class="sub" id="appsNote">Loading&hellip;</div>
     <div class="apphead" id="appsHead" hidden><span>Application name</span><span>Status</span><span>Today</span><span>This cycle</span><span></span></div>
     <div id="apps"></div></section>
@@ -393,6 +410,8 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
     <section class="panel dng s2" style="--c:var(--bad)"><h2>Reset this month</h2>
       <p class="sub" style="margin:0 0 10px;font-size:12.5px">Zeroes this cycle's counters and per-app totals. Settings and past months are kept.</p>
       <button id="resetBtn" class="danger">Reset this month</button></section>
+    <section class="panel s6" style="--c:var(--ok)"><h2>Font</h2>
+      <div class="fonts" id="fonts"></div></section>
   </div>
   <p class="sub setfoot">DataGuard <b id="verNum">v?</b> &middot; shortcuts: 1 Overview, 2 Apps, 3 Settings</p>
 </div>
@@ -924,6 +943,33 @@ document.addEventListener("keydown", e => {
   if (k) go(k);
 });
 go("main");
+
+/* ---- font picker ---- */
+const FONTS = [
+  ["Segoe UI", '"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif'],
+  ["Inter", '"Inter","Segoe UI",system-ui,sans-serif'],
+  ["Manrope", '"Manrope","Segoe UI",system-ui,sans-serif'],
+  ["Plus Jakarta Sans", '"Plus Jakarta Sans","Segoe UI",system-ui,sans-serif'],
+  ["DM Sans", '"DM Sans","Segoe UI",system-ui,sans-serif'],
+  ["Outfit", '"Outfit","Segoe UI",system-ui,sans-serif'],
+  ["Space Grotesk", '"Space Grotesk","Segoe UI",system-ui,sans-serif'],
+  ["Sora", '"Sora","Segoe UI",system-ui,sans-serif']
+];
+function applyFont(name, save) {
+  const f = FONTS.find(x => x[0] === name) || FONTS[0];
+  document.documentElement.style.setProperty("--f", f[1]);
+  document.querySelectorAll(".fchip").forEach(c => c.classList.toggle("on", c.dataset.font === f[0]));
+  if (save) { try { localStorage.setItem("dg_font", f[0]); } catch (e) {} }
+  if (typeof drawChart === "function") try { drawChart(); } catch (e) {}
+}
+FONTS.forEach(f => {
+  const b = mk("button", "fchip"); b.type = "button"; b.dataset.font = f[0]; b.style.fontFamily = f[1];
+  b.append(document.createTextNode(f[0]), mk("small", "", "42% \u00b7 1.8 GB"));
+  b.onclick = () => applyFont(f[0], true);
+  $("#fonts").appendChild(b);
+});
+let savedFont = ""; try { savedFont = localStorage.getItem("dg_font") || ""; } catch (e) {}
+applyFont(savedFont, false);
 
 async function tick() {
   try { render(await (await fetch("/api/status", {cache: "no-store"})).json()); }
