@@ -160,11 +160,41 @@ input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
 /* settings cards */
 .cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
 .cards .panel{display:flex;flex-direction:column}
-.cards .wide{grid-column:1/-1}
+.s2{grid-column:span 2}.s4{grid-column:span 4}
 .savebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;position:sticky;bottom:0;padding:12px 18px;border-radius:14px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);backdrop-filter:blur(10px)}
 .savebar #msg{margin-left:auto}
 .cards .panel.dng{border-color:color-mix(in srgb,var(--bad) 35%,var(--line))}
 
+
+.cards .panel{--c:var(--acc);border-top:3px solid var(--c);background:linear-gradient(180deg,color-mix(in srgb,var(--c) 9%,var(--panel)),var(--panel) 70%)}
+.cards h2{color:var(--c);justify-content:flex-start;gap:9px;font-size:13px}
+.cards h2::before{content:"";width:9px;height:9px;border-radius:3px;background:var(--c);box-shadow:0 0 10px var(--c)}
+.cards input:focus,.cards select:focus{border-color:var(--c)}
+.cards input[type=checkbox]{accent-color:var(--c)}
+.cards button:not(.danger):hover{border-color:var(--c);color:var(--c)}
+.cards .panel.dng{border-color:var(--line);border-top-color:var(--bad)}
+.setfoot{text-align:center;margin:4px 0 0}
+
+.cards .panel{padding:14px 16px}
+.cards h2{margin-bottom:8px}
+.cards .form{gap:10px;margin:0}
+.form.two,.cards .two{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end}
+.cards input,.cards select{padding:7px 10px}
+.cards label{gap:4px}
+.cards button.act,.cards button.danger{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:36px;padding:0 14px;border-radius:10px;font-weight:600;font-size:13px;transition:background .15s,border-color .15s,transform .1s}
+.cards button.act{--b:var(--c);border-color:color-mix(in srgb,var(--b) 45%,var(--line));background:color-mix(in srgb,var(--b) 12%,var(--panel2));color:var(--ink)}
+.cards button.act:hover{background:color-mix(in srgb,var(--b) 26%,var(--panel2));border-color:var(--b);color:var(--ink)}
+.cards button:active{transform:translateY(1px)}
+.cards .danger{width:100%;background:color-mix(in srgb,var(--bad) 10%,transparent)}
+.pv{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+label.sw{display:flex;align-items:center;gap:10px;min-height:36px;padding:0 12px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);color:var(--ink);cursor:pointer;font-size:13px}
+label.sw:hover{border-color:var(--faint)}
+label.sw input{position:absolute;opacity:0;width:0;height:0}
+label.sw i{width:32px;height:18px;border-radius:99px;background:var(--line);position:relative;flex:none;transition:background .2s}
+label.sw i::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--ink);transition:transform .2s}
+label.sw input:checked+i{background:var(--c)}
+label.sw input:checked+i::after{transform:translateX(14px);background:#0b1020}
+label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
 /* apps */
 .row{display:grid;grid-template-columns:minmax(90px,170px) 1fr auto;gap:12px;align-items:center}
 .row .track{height:8px}
@@ -197,7 +227,7 @@ input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
   .wrap{height:auto}
   header{grid-template-columns:1fr;justify-items:center}
   .hl{display:none}
-  .cards{grid-template-columns:1fr}
+  .cards{grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
 }
 @media(max-width:560px){.apphead,.approw summary{grid-template-columns:minmax(80px,1fr) 60px 70px 104px}.apphead span:nth-child(2),.approw summary .track{display:none}}
 
@@ -311,39 +341,39 @@ input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
 
 <div data-p="settings" hidden>
   <div class="cards">
-    <section class="panel"><h2>Plan</h2><p class="sub" style="margin:0">Your data allowance and when it resets.</p>
-      <div class="form">
+    <section class="panel s2" style="--c:var(--acc)"><h2>Plan</h2>
+      <div class="form two">
         <label>Plan size (GB)<input id="f_plan" type="number" min="1" step="1"></label>
-        <label>Renewal day of month<input id="f_day" type="number" min="1" max="31"></label>
-        <label>Reserve (% kept untouched)<input id="f_res" type="number" min="0" max="50" step="1"></label>
-        <label class="chk"><input id="f_bin" type="checkbox"> My carrier counts 1 GB = 1024 MB</label>
+        <label>Renewal day<input id="f_day" type="number" min="1" max="31"></label>
+        <label>Reserve (%)<input id="f_res" type="number" min="0" max="50" step="1"></label>
+        <label class="chk sw"><input id="f_bin" type="checkbox"><i></i>1 GB = 1024 MB</label>
       </div></section>
-    <section class="panel"><h2>Network</h2><p class="sub" style="margin:0">Choose which traffic counts toward your plan.</p>
+    <section class="panel s2" style="--c:var(--down)"><h2>Network</h2>
       <div class="form">
-        <label>Phone hotspot Wi-Fi name<input id="f_ssid" placeholder="empty = count the whole interface"></label>
-        <label>Network interface<select id="f_iface"></select></label>
-        <div class="actions"><button type="button" id="useSsid">Use the Wi-Fi I'm on now</button></div>
+        <label>Hotspot Wi-Fi name<input id="f_ssid" placeholder="empty = count the whole interface"></label>
+        <div class="two"><label>Interface<select id="f_iface"></select></label>
+        <button type="button" id="useSsid" class="act" title="Fill in the Wi-Fi you're connected to">Use current Wi-Fi</button></div>
       </div></section>
-    <section class="panel"><h2>Alerts</h2><p class="sub" style="margin:0">Get warned before the plan runs out.</p>
+    <section class="panel s2" style="--c:var(--warn)"><h2>Alerts</h2>
       <div class="form">
         <label>Alert at (% of plan, comma separated)<input id="f_alerts"></label>
         <label>Warn above (MB per minute, 0 = off)<input id="f_burst" type="number" min="0"></label>
-        <label class="chk"><input id="f_notify" type="checkbox"> Desktop notifications</label>
-        <label class="chk"><input id="f_snd" type="checkbox"> Sound effects</label>
       </div></section>
-    <section class="panel"><h2>Sounds &amp; notifications</h2><p class="sub" style="margin:0">Hear and see what each alert will do.</p>
+    <section class="panel s4" style="--c:var(--up)"><h2>Sounds &amp; notifications</h2>
       <div class="form">
-        <div class="actions">
-          <button type="button" id="pv1">Heads-up (75%)</button>
-          <button type="button" id="pv2">Warning (90%)</button>
-          <button type="button" id="pv3">Alarm (over limit)</button></div>
-        <div class="actions"><button type="button" id="test">Test notification</button></div>
+        <div class="two"><label class="chk sw"><input id="f_notify" type="checkbox"><i></i>Desktop notifications</label>
+        <label class="chk sw"><input id="f_snd" type="checkbox"><i></i>Sound effects</label></div>
+        <div class="actions pv">
+          <button type="button" id="pv1" class="act" style="--b:var(--warn)">&#9654; Heads-up 75%</button>
+          <button type="button" id="pv2" class="act" style="--b:#fb923c">&#9654; Warning 90%</button>
+          <button type="button" id="pv3" class="act" style="--b:var(--bad)">&#9654; Alarm</button>
+          <button type="button" id="test" class="act">Test notification</button></div>
       </div></section>
-    <section class="panel dng wide"><h2>Reset this month</h2>
-      <p class="sub" style="margin:0 0 12px">Zero this cycle's counters and per-app totals. Settings and past months are kept.</p>
-      <div class="actions"><button id="resetBtn" class="danger">Reset this month</button></div></section>
+    <section class="panel dng s2" style="--c:var(--bad)"><h2>Reset this month</h2>
+      <p class="sub" style="margin:0 0 10px;font-size:12.5px">Zeroes this cycle's counters and per-app totals. Settings and past months are kept.</p>
+      <button id="resetBtn" class="danger">Reset this month</button></section>
   </div>
-  <div class="savebar"><span class="sub">Changes save automatically &middot; DataGuard <b id="verNum">v?</b> &middot; shortcuts: 1 Overview, 2 Apps, 3 Settings</span><span id="msg"></span></div>
+  <p class="sub setfoot">DataGuard <b id="verNum">v?</b> &middot; shortcuts: 1 Overview, 2 Apps, 3 Settings</p>
 </div>
 
 </div></main>
@@ -372,7 +402,7 @@ const dstr = iso => new Date(iso + "T12:00:00").toLocaleDateString(undefined, {m
 const txt = (sel, t) => { $(sel).textContent = t; };
 const tone = p => p >= 90 ? "var(--bad)" : p >= 75 ? "var(--warn)" : "var(--ok)";
 const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
-const msg = t => { txt("#msg", t); clearTimeout(msgTimer); msgTimer = setTimeout(() => txt("#msg", ""), 6000); };
+const msg = t => toast(t);
 let toastTimer = 0, toastHide = 0;
 const toast = (t, kind) => {
   const el = $("#toast");
