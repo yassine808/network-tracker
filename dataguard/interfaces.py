@@ -3,7 +3,7 @@
 import re
 import subprocess
 
-from .common import IS_MAC, IS_WIN, NO_WINDOW
+from .common import IS_MAC, IS_WIN, NO_WINDOW, psutil
 
 VIRTUAL = re.compile(
     r"loopback|^lo$|vethernet|vmware|virtualbox|vbox|hyper-v|docker|veth|virbr|br-|^tun|^tap|"
@@ -11,9 +11,9 @@ VIRTUAL = re.compile(
 WIFI = re.compile(r"wi-?fi|wlan|wlp\d|wlx|wireless|^wl\d|^ath\d|^en0$", re.I)
 
 
-def run_quiet(cmd, timeout=4):
+def run_quiet(cmd, timeout=4, enc=None):
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, errors="replace",
+        r = subprocess.run(cmd, capture_output=True, text=True, errors="replace", encoding=enc,
                            timeout=timeout, creationflags=NO_WINDOW)
         return r.stdout or ""
     except (OSError, subprocess.SubprocessError):
@@ -24,10 +24,29 @@ def get_ssid():
     """Wi-Fi network name: str; "" when not on Wi-Fi; None when it can't be determined."""
     if IS_WIN:
         out = run_quiet(["netsh", "wlan", "show", "interfaces"])
-        if out is None:
+        m = re.search(r"^[ \t]*SSID[ \t]*:[ \t]*(.+?)[ \t]*$", out or "", re.M)  # BSSID lines don't match
+        if m:
+            return m.group(1)
+        # netsh gave no name: on a fresh PC Windows 11 24H2 hides it until location access is
+        # allowed. The connection profile name equals the SSID and needs no permission.
+        ps = run_quiet(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                        "[Console]::OutputEncoding=[Text.Encoding]::UTF8;"
+                        "$i=@(Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' -and "
+                        "$_.PhysicalMediaType -match '802.11|Native' } | "
+                        "ForEach-Object { $_.ifIndex });"
+                        "Get-NetConnectionProfile | Where-Object { $i -contains $_.InterfaceIndex } | "
+                        "Select-Object -First 1 -ExpandProperty Name"],
+                       timeout=10, enc="utf-8")
+        if ps and ps.strip():
+            return ps.strip()
+        # still nothing: only say "not on Wi-Fi" if no Wi-Fi adapter is up; otherwise unknown
+        try:
+            stats = psutil.net_if_stats()
+            if any(WIFI.search(n) and s.isup for n, s in stats.items()):
+                return None
+        except Exception:
             return None
-        m = re.search(r"^[ \t]*SSID[ \t]*:[ \t]*(.+?)[ \t]*$", out, re.M)  # BSSID lines don't match; stays on one line
-        return m.group(1) if m else ""
+        return "" if out is not None else None
     if IS_MAC:
         out = run_quiet(["networksetup", "-getairportnetwork", "en0"])
         m = re.search(r"Network:\s*(.+?)\s*$", out or "", re.M)

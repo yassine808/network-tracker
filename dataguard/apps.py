@@ -122,6 +122,47 @@ def _library_roots():
 
 
 
+HELPERS = {"msedgewebview2.exe"}  # their network traffic belongs to the host app (WhatsApp, Teams...)
+
+
+def _owner_name(p, name):
+    """Walk up from a WebView2 helper to the app that launched it; the helper itself does the
+    downloading, so without this the app (e.g. WhatsApp) never shows up."""
+    if name.lower() not in HELPERS:
+        return name
+    try:
+        q = p
+        for _ in range(8):
+            q = q.parent()
+            if q is None:
+                break
+            n = q.name()
+            if n.lower() not in HELPERS:
+                return n if n.lower() not in ("explorer.exe", "svchost.exe") else name
+    except (psutil.Error, OSError):
+        pass
+    return name
+
+
+def _wmi_other():
+    """{pid: cumulative 'other' I/O bytes} from the performance counters. Unlike psutil this
+    also reads protected and packaged (Store) apps such as WhatsApp. {} on any failure."""
+    import subprocess
+    try:
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+             "Get-CimInstance Win32_PerfRawData_PerfProc_Process | "
+             "Select-Object IDProcess,IOOtherBytesPersec | ConvertTo-Json -Compress"],
+            capture_output=True, text=True, timeout=20, creationflags=0x08000000)
+        data = json.loads(r.stdout)
+        if isinstance(data, dict):
+            data = [data]
+        return {int(d["IDProcess"]): int(d["IOOtherBytesPersec"]) for d in data}
+    except Exception as e:
+        logging.warning("apps: WMI fallback failed: %s", e)
+        return {}
+
+
 def _iso(day):
     return day.isoformat() if isinstance(day, date) else day
 
@@ -233,8 +274,8 @@ class AppTracker(threading.Thread):
     kept on disk until the network is back. `allowed` returning None means the meter
     has not learned which network we're on - then Windows is left alone."""
 
-    INTERVAL = 15
-    FLUSH_EVERY = 60
+    INTERVAL = 10
+    FLUSH_EVERY = 10
     INDEX_WAIT = 2.0   # first icon of the session may wait this long for the folder index
     MISS_TTL = 60.0    # remember "no file found" so a page load stops re-walking every process
 
@@ -443,26 +484,38 @@ class AppTracker(threading.Thread):
         except (psutil.AccessDenied, OSError):
             pids = None
         day = date.today().isoformat()
-        cur, gained = {}, 0
+        cur, gained, blind = {}, 0, {}
+
+        def acct(pid, name, v):
+            nonlocal gained
+            cur[pid] = (name, v)  # baseline for EVERY process, so a new app counts from its first socket
+            if pids is not None and pid not in pids:
+                return
+            prev = self.base.get(pid)
+            d = v - prev[1] if prev is not None and prev[0] == name and v >= prev[1] else 0
+            if record and (d or pids is not None):  # a 0-byte row shows a new app at once
+                self.store.add(day, name, d)
+                gained += d
+
         for p in psutil.process_iter(["name", "exe"]):
             name = p.info.get("name") or f"pid {p.pid}"
             if p.info.get("exe"):
                 self.paths.setdefault(name, p.info["exe"])  # record for every process, connected or not
-            if pids is not None and p.pid not in pids:
-                continue
+            name = _owner_name(p, name)  # WebView2/Electron helpers: bill the app that owns them
             try:
                 v = io_proxy(p)
             except (psutil.AccessDenied, psutil.Error, AttributeError):
+                if pids is None or p.pid in pids:
+                    blind[p.pid] = name  # protected / packaged app: read it from WMI below
                 continue
-            cur[p.pid] = (name, v)
-            prev = self.base.get(p.pid)
-            if prev is not None and prev[0] == name and v >= prev[1]:
-                d = v - prev[1]
-                if d and record:
-                    self.store.add(day, name, d)
-                    gained += d
+            acct(p.pid, name, v)
+        if blind:
+            raw = _wmi_other()
+            for pid, name in blind.items():
+                if pid in raw:
+                    acct(pid, name, raw[pid])
         self.base = cur
-        if gained and time.time() - self.t_flush >= self.FLUSH_EVERY:
+        if time.time() - self.t_flush >= self.FLUSH_EVERY:
             self.t_flush = time.time()
             self.store.flush()
 
