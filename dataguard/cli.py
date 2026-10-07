@@ -45,6 +45,9 @@ class SmallLog(RotatingFileHandler):
 
 def setup_logging(home):
     """Everything worth keeping goes to dataguard.log in the home folder, plus the console."""
+    # the home folder does not exist until something makes it, and logging is the first thing
+    # that runs: a first launch would otherwise die here, silently (pythonw has no stderr)
+    Path(home).mkdir(parents=True, exist_ok=True)
     file_h = SmallLog(str(Path(home) / "dataguard.log"), maxBytes=LOG_CAP, backupCount=0, encoding="utf-8")
     file_h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
     con_h = logging.StreamHandler(sys.stdout)
