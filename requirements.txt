@@ -1,0 +1,11 @@
+# DataGuard - runtime dependencies.
+# Python 3.8+ (tested on 3.9.13).
+
+# Required: the one hard dependency. Everything else degrades gracefully.
+psutil>=5.9
+
+# Optional, recommended: tray icon + native app window + app icons on the Apps page.
+# Without them the dashboard still opens in a browser (the installer ships all four).
+# pystray>=0.19
+# pillow>=9.0
+# pywebview>=4.0
