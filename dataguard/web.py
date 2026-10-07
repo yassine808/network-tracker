@@ -84,11 +84,11 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"error": "tracker not running"}, 404)
                 from . import icons  # Pillow may be missing: then, or on any failure, a generic glyph
                 name = parse_qs(urlparse(self.path).query).get("name", [""])[0]
-                exe = self.tracker.exe(name)
-                data = icons.png(exe)
+                src = self.tracker.icon_src(name)  # the exe, or its shortcut when the exe hides
+                data = icons.png(src)
                 fallback = not data
                 if fallback:
-                    if not exe:
+                    if not src:
                         logging.info("icon: no file known for %s, serving the generic icon", name)
                     data = icons.GENERIC
                 self.send_response(200)

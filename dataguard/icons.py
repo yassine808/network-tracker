@@ -5,6 +5,7 @@ import base64
 import ctypes
 import io
 import logging
+import os
 import sys
 import threading
 import time
@@ -39,9 +40,12 @@ def _image_cls():
 
 
 def png(path):
-    """PNG bytes for an .exe, or None (logged, briefly cached) so callers can fall back."""
+    """PNG bytes for an .exe (or a .lnk carrying its icon), or None (logged, briefly cached)
+    so callers can fall back. Normalized first: the shell rejects a path with forward
+    slashes - Steam's registry records exactly that form."""
     if not path or not sys.platform.startswith("win"):
         return None
+    path = os.path.normpath(path)
     now = time.time()
     with _lock:
         hit = _cache.get(path)

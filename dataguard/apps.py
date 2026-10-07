@@ -81,8 +81,28 @@ def _steam_libraries():
             p = raw.replace("\\\\", "\\")
             if p not in libs:
                 libs.append(p)
-    return [os.path.join(p, "steamapps", "common") for p in libs
+    return [os.path.normpath(os.path.join(p, "steamapps", "common")) for p in libs
             if os.path.isdir(os.path.join(p, "steamapps"))]
+
+
+def _stem_key(name):
+    """'GenshinImpact.exe' and 'Genshin Impact.lnk' both -> 'genshinimpact'."""
+    base = os.path.basename(name or "")
+    return re.sub(r"[^a-z0-9]", "", os.path.splitext(base)[0].lower())
+
+
+def _shortcut_roots():
+    """Start Menu and desktop: a program's icon lives there even when its exe hides
+    from psutil and from every folder the installer index walks."""
+    if not IS_WIN:
+        return []
+    roots = [os.path.join(os.environ.get("APPDATA", ""),
+                          r"Microsoft\Windows\Start Menu\Programs"),
+             os.path.join(os.environ.get("PROGRAMDATA", ""),
+                          r"Microsoft\Windows\Start Menu\Programs"),
+             os.path.join(os.path.expanduser("~"), "Desktop"),
+             os.path.join(os.environ.get("PUBLIC", ""), "Desktop")]
+    return [r for r in dict.fromkeys(roots) if r and os.path.isdir(r)]
 
 
 def _library_roots():
@@ -97,6 +117,7 @@ def _library_roots():
     roots += [os.path.join(pf86, d) for d in LAUNCHER_DIRS]
     roots += [os.path.join(drive + "\\", d) for d in LAUNCHER_DIRS]
     roots += _steam_libraries()
+    roots += [pf, pf86]  # the whole Program Files trees: everything not made by a launcher
     return [r for r in dict.fromkeys(roots) if os.path.isdir(r)]
 
 
@@ -229,6 +250,7 @@ class AppTracker(threading.Thread):
         self._index_evt = threading.Event()
         self._index_lock = threading.Lock()
         self._index_started = False
+        self._lnk = {}            # program stem -> the shortcut that carries its icon
         self._no_path = {}        # app name -> when the file last could not be found
 
     def exe(self, name):
@@ -260,6 +282,18 @@ class AppTracker(threading.Thread):
         self._index_evt.wait(self.INDEX_WAIT)
         return self._index.get(name.lower(), "")
 
+    def icon_src(self, name):
+        """File to take an app's icon from: its exe when that is known, else the Start Menu
+        or desktop shortcut carrying the same program's icon - a program can hide its path
+        (or live outside every folder the index walks) while its shortcut stays put. Exact
+        stem matches only: a near-miss would put someone else's logo on the row."""
+        exe = self.exe(name)
+        if exe:
+            return exe
+        self._start_index()
+        self._index_evt.wait(self.INDEX_WAIT)
+        return self._lnk.get(_stem_key(name), "")
+
     def _start_index(self):
         if not IS_WIN:
             return
@@ -271,7 +305,8 @@ class AppTracker(threading.Thread):
                              name="dataguard-exe-index").start()
 
     def _build_index(self):
-        """Map every .exe under the launcher folders to its path, once."""
+        """Map every .exe under the launcher folders to its path, and every shortcut to the
+        program it points at, once."""
         try:
             idx = {}
             for root in _library_roots():
@@ -285,6 +320,16 @@ class AppTracker(threading.Thread):
             logging.info("apps: indexed %d program files from the launcher folders", len(idx))
         except Exception as e:  # an odd folder must not stop tracking
             logging.warning("apps: could not index the launcher folders: %s", e)
+        try:
+            lnk = {}
+            for root in _shortcut_roots():
+                for dirpath, _, files in os.walk(root):
+                    for f in files:
+                        if f.lower().endswith(".lnk"):
+                            lnk.setdefault(_stem_key(f), os.path.join(dirpath, f))
+            self._lnk = lnk
+        except Exception as e:
+            logging.warning("apps: could not index the shortcuts: %s", e)
         finally:
             self._index_evt.set()
 
