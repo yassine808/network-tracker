@@ -147,7 +147,6 @@ h3{margin:0 0 2px;font-size:14px}
 /* controls */
 button{font:inherit;font-size:13.5px;padding:8px 14px;border-radius:9px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);cursor:pointer}
 button:hover{border-color:var(--faint)}button:disabled{opacity:.55;cursor:default}
-button.pri{background:var(--acc);color:#0b1020;border-color:transparent;font-weight:650}
 button.danger{border-color:var(--bad);color:var(--bad);background:transparent}
 button.danger:hover{background:var(--bad);color:#190808}
 input,select{font:inherit;padding:8px 11px;border-radius:9px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);min-width:0}
@@ -156,15 +155,12 @@ label{display:grid;gap:5px;font-size:12.5px;color:var(--mute)}
 label.chk{display:flex;gap:9px;align-items:center;color:var(--ink)}
 input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
 .actions{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
-#msg{font-size:13px;color:var(--mute)}
 .form{display:grid;gap:14px;margin:12px 0 0}
 
 /* settings cards */
 .cards{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
 .cards .panel{display:flex;flex-direction:column}
 .s2{grid-column:span 2}.s4{grid-column:span 4}.s6{grid-column:span 6}
-.savebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;position:sticky;bottom:0;padding:12px 18px;border-radius:14px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);backdrop-filter:blur(10px)}
-.savebar #msg{margin-left:auto}
 .cards .panel.dng{border-color:color-mix(in srgb,var(--bad) 35%,var(--line))}
 
 
@@ -204,8 +200,6 @@ label.sw input:checked+i{background:var(--c)}
 label.sw input:checked+i::after{transform:translateX(14px);background:#0b1020}
 label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
 /* apps */
-.row{display:grid;grid-template-columns:minmax(90px,170px) 1fr auto;gap:12px;align-items:center}
-.row .track{height:8px}
 .apphead,.approw summary{display:grid;grid-template-columns:minmax(140px,1fr) 96px 84px 96px 124px;gap:14px;align-items:center}
 .apphead{font-size:12px;color:var(--mute);padding:12px 0 6px}
 .apphead[hidden]{display:none}
@@ -218,7 +212,6 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
 .aic{width:18px;height:18px;vertical-align:-4px;margin-right:7px;border-radius:5px;object-fit:contain;background:#eceef2;padding:1.5px}
 .car{display:inline-block;color:var(--mute);margin-right:6px;transition:transform .15s}
 .approw[open] .car{transform:rotate(90deg)}
-.approw .track{height:6px}
 .v1,.v2{text-align:right}.v1{color:var(--mute)}
 .blk{padding:4px 10px;font-size:12px;justify-self:end}
 .blk.on{border-color:var(--bad);color:var(--bad)}
@@ -429,7 +422,7 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
 <script>
 "use strict";
 const $ = s => document.querySelector(s);
-let U = {gb: 1e9, mb: 1e6}, filled = false, timer = 0, msgTimer = 0, ST = null;
+let U = {gb: 1e9, mb: 1e6}, filled = false, timer = 0, ST = null;
 
 const gb = b => { const v = b / U.gb; return (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1)) + " GB"; };
 const sz = b => {
@@ -741,7 +734,7 @@ async function toggleBlock(btn, name, on) {
   tick();
 }
 
-function buildAppRow(r, days, share) {
+function buildAppRow(r, days) {
   const d = mk("details", "approw"); d.dataset.app = r.app;
   const s = mk("summary"), nm = mk("span", "nm");
   nm.append(mk("span", "car", "\u25b8"));
@@ -753,11 +746,11 @@ function buildAppRow(r, days, share) {
   const lbl = mk("div", "daylbl");
   lbl.append(mk("span"), mk("span", "", "last 30 days"), mk("span"));
   d.append(s, mk("div", "days"), lbl);
-  syncAppRow(d, r, days, share);
+  syncAppRow(d, r, days);
   return d;
 }
 
-function syncAppRow(d, r, days, share) {
+function syncAppRow(d, r, days) {
   const s = d.querySelector("summary");
   s.querySelector(".v1").textContent = sz(r.today);
   s.querySelector(".v2").textContent = sz(r.cycle);
@@ -815,13 +808,12 @@ function renderApps(a) {
       : "Nothing recorded yet; totals build up in the background.";
     box.replaceChildren(mk("div", "bempty", msg)); return;
   }
-  const share = a.total_cycle || 1;
   const have = Array.from(box.querySelectorAll(":scope > details.approw"));
   const same = have.length === rows.length && rows.every((r, n) => have[n].dataset.app === r.app);
-  if (same) rows.forEach((r, n) => syncAppRow(have[n], r, days, share));
+  if (same) rows.forEach((r, n) => syncAppRow(have[n], r, days));
   else {
     const open = new Set(have.filter(d => d.open).map(d => d.dataset.app));
-    box.replaceChildren(...rows.map(r => { const d = buildAppRow(r, days, share); if (open.has(r.app)) d.open = true; return d; }));
+    box.replaceChildren(...rows.map(r => { const d = buildAppRow(r, days); if (open.has(r.app)) d.open = true; return d; }));
   }
 }
 

@@ -135,8 +135,6 @@ class AppStore:
                     self._fold(agg, day, app, n, t, cs, d30)
             apps = sorted(agg.values(), key=lambda r: (-r["cycle"], -r["d30"], r["app"]))
             return {"apps": apps, "count": len(apps),
-                    "total_today": sum(r["today"] for r in apps),
-                    "total_cycle": sum(r["cycle"] for r in apps),
                     "days": [(today - timedelta(days=i)).isoformat() for i in range(29, -1, -1)]}
 
     @staticmethod

@@ -75,8 +75,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/apps":
                 if self.tracker is None:
                     return self._json({"supported": False, "apps": [], "count": 0,
-                                       "total_today": 0, "total_cycle": 0, "days": [],
-                                       "interval": 0, "err": "tracker not running"})
+                                       "days": [], "err": "tracker not running"})
                 start, _ = cycle_bounds(date.today(), self.mon.store.cfg["reset_day"])
                 self._json(self.tracker.snapshot(start, date.today()))
             elif path == "/api/app_icon":
