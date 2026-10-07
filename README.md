@@ -6,14 +6,26 @@ DataGuard is a small Windows-first desktop tool that counts every byte your lapt
 receives while it is tethered to your phone's hotspot, totals it against your billing cycle, warns
 you before you run out, and can cut the internet when a daily cap is hit.
 
-It is deliberately cheap and quiet: one process, one required package (`psutil`), a local
-dashboard at `http://127.0.0.1:8787`, no accounts, no cloud, **no outbound internet connections at
-all** — the installed app firewall-seals its own interpreter so it physically cannot phone home.
+**[⬇ Download DataGuard 1.2.0](https://github.com/yassine808/network-tracker/releases/latest)**
+— per-user install, no admin rights, no Python required (the installer bundles everything).
+Prefer to build it yourself? See [Install](#install) below.
 
-- **Exact, local, early.** Carrier apps are slow, vague and reactive. DataGuard is the opposite.
-- **Two-second glance.** GB left and today's pace are the first-read elements; everything else supports them.
-- **Works offline by design.** Nothing is calculated, recorded or alerted while you are on a
-  different network than the one you configured.
+<img src="docs/screenshots/overview.png" alt="DataGuard Overview: this-cycle ring, today's pace, live chart and 30-day heatmap" width="900">
+
+**Highlights**
+
+- **Exact, local, early.** Carrier apps are slow, vague and reactive. DataGuard is the opposite:
+  per-second byte counters, one local SQLite file, alerts before you run out.
+- **Two-second glance.** GB left and today's pace are the first-read elements; everything else
+  supports them.
+- **Hotspot-only by design.** Only your configured Wi-Fi network is counted, alerted on and
+  blocked — on any other network DataGuard records nothing and stays silent. Enabling a block
+  costs one UAC prompt per network change, not one per app.
+- **Real firewall blocks per app.** Block a hungry program from the Apps page with one click
+  (Windows Firewall + WFP); the block steps aside everywhere except your hotspot.
+- **Privacy is structural.** One process, one required package (`psutil`), a local dashboard at
+  `http://127.0.0.1:8787`, no accounts, no cloud, **no outbound internet connections at all** —
+  the installed app firewall-seals its own interpreter so it physically cannot phone home.
 
 Current version: **1.2.0** (`dataguard/__init__.py`)
 
@@ -41,10 +53,12 @@ Current version: **1.2.0** (`dataguard/__init__.py`)
 ### Option A — the installer (recommended)
 
 1. Download `DataGuard-Setup-<version>.exe` from the
-   [GitHub Releases page](https://github.com/yassine808/network-tracker/releases).
+   [GitHub Releases page](https://github.com/yassine808/network-tracker/releases)
+   (current: `DataGuard-Setup-1.2.0.exe`).
 2. Run it. It installs per-user into `%LOCALAPPDATA%\Programs\DataGuard` — **no admin rights needed**.
-3. Leave **"Start DataGuard automatically when I sign in to Windows"** checked (it is pre-checked
-   on first install) and finish the wizard. DataGuard starts and opens the dashboard.
+3. Finish the wizard. **"Start DataGuard now"** is pre-checked, so DataGuard starts and opens the
+   dashboard. Auto-start at every login is set up for you (no checkbox to miss). Silent installs
+   (`/SILENT`, `/VERYSILENT`) do the same automatically.
 
 The installer bundles its own embeddable Python 3.9 + all dependencies, so you do not need Python
 installed.
@@ -96,6 +110,8 @@ Open `http://127.0.0.1:8787` (or the app window / tray icon). Keyboard shortcuts
 
 ### Overview
 
+![DataGuard Overview tab: cycle ring, Today card, live traffic chart and 30-day heatmap](docs/screenshots/overview.png)
+
 - **This cycle** — a ring showing % used (used + reserve over plan) and an editable *GB left* figure,
   used-of-plan, days to renewal. Both numbers are editable in place; Enter or click-away commits.
 - **Today** — today's total against your safe daily allowance, with the live up/down rate and a
@@ -106,12 +122,18 @@ Open `http://127.0.0.1:8787` (or the app window / tray icon). Keyboard shortcuts
 
 ### Apps (Windows only)
 
+![DataGuard Apps tab: per-app data totals with Block internet buttons and filters](docs/screenshots/apps.png)
+
 - **Who's using data right now?** — press *Measure (3 s)* for a ranked estimate of active programs.
 - **Data by app** — per-app totals for today / this cycle / 30 days, each row expandable to a 30-day
-  bar chart, with a **Block internet** button per app (writes real Windows Firewall + WFP rules —
-  each block lives only on the configured Wi-Fi and steps aside anywhere else).
+  bar chart, with a **Block internet** button per app (writes real Windows Firewall + WFP rules).
+  **Blocks are gated to your hotspot**: each rule applies tri-state — on your configured Wi-Fi the
+  app is blocked, on any other network it is allowed, and DataGuard flips the rules with a single
+  UAC prompt per network change (not one per app). Windows system processes can never be blocked.
 
 ### Settings
+
+![DataGuard Settings tab: Plan, Network, Alerts, Sounds, Reset and Font cards](docs/screenshots/settings.png)
 
 | Card | What it controls |
 |------|------------------|
@@ -119,6 +141,7 @@ Open `http://127.0.0.1:8787` (or the app window / tray icon). Keyboard shortcuts
 | Network | Hotspot Wi-Fi name (SSID), interface (`auto` picks the Wi-Fi adapter) |
 | Alerts | Alert thresholds (% of plan, comma separated), burst warning (MB/min, 0 = off) |
 | Sounds & notifications | Desktop notifications, sound effects, preview buttons, test notification |
+| Font | Dashboard typeface (8 choices, saved in the browser) |
 | Reset this month | Zeroes this cycle's counters and per-app totals. Settings and past months are kept. |
 
 ---
@@ -559,8 +582,11 @@ verify the tag equals `__version__`, build the zip and the setup.exe, publish a 
 
 ## Uninstall
 
-- **Installer:** Windows → *Apps* → *DataGuard* → Uninstall. It removes the Startup entry it created
-  (`dataguard.py startup remove`) and the program folder.
+- **Installer:** Windows → *Apps* → *DataGuard* → Uninstall (or run
+  `%LOCALAPPDATA%\Programs\DataGuard\unins000.exe`). The uninstaller **stops the running app
+  first**, removes the Startup entry it created, deletes the whole program folder — including the
+  bundled Python (`Lib\`, `__pycache__`) — and leaves nothing behind. No reboot needed; your
+  history in `%APPDATA%\DataGuard` is kept (delete that folder too for a full wipe).
 - **From source / zip:** delete the folder, then `python dataguard.py startup remove` (if you
   installed auto-start), and delete `%APPDATA%\DataGuard` if you want the history gone too.
 
