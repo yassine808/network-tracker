@@ -11,6 +11,7 @@ import time
 
 _cache = {}      # path -> [png bytes or None, when it was tried]
 _lock = threading.Lock()
+_work = threading.Lock()  # one extraction at a time: the shell and GDI fail under concurrent callers
 FAIL_TTL = 60.0  # seconds a failed path is cached (never latch "no icon" for good)
 
 # 64x64 neutral tile with a window glyph, rendered once and embedded so the fallback
@@ -49,13 +50,23 @@ def png(path):
     Image = _image_cls()
     if Image is None:
         data, why = None, "Pillow is not installed"
-    else:
-        data, why = _extract(path, Image)
-    if data is None:
         logging.warning("icon: no icon for %s: %s (retry in %ds)", path, why, int(FAIL_TTL))
-    with _lock:
-        _cache[path] = [data, time.time()]
-    return data
+        with _lock:
+            _cache[path] = [data, time.time()]
+        return None
+    with _work:
+        with _lock:  # a request that waited in line may already have filled this entry
+            hit = _cache.get(path)
+            if hit and (hit[0] is not None or time.time() - hit[1] < FAIL_TTL):
+                return hit[0]
+        data, why = _extract(path, Image)
+        if data is None and "Pillow" not in why:
+            data, why = _extract(path, Image)  # shell/GDI hiccups are transient: try once more
+        if data is None:
+            logging.warning("icon: no icon for %s: %s (retry in %ds)", path, why, int(FAIL_TTL))
+        with _lock:
+            _cache[path] = [data, time.time()]
+        return data
 
 
 def _extract(path, Image):

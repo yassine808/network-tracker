@@ -10,6 +10,7 @@ import sys
 import tempfile
 import threading
 
+from . import wfp
 from .common import NO_WINDOW
 
 CUT_RULE = "DataGuard-Internet-Cutoff"
@@ -82,14 +83,21 @@ def _verdict(code, out):
 
 def _apply(argvs):
     """Run netsh command(s), elevating once when needed. add-rules must succeed; deletes are
-    best-effort (a missing rule is fine). Returns (ok, message)."""
+    best-effort (a missing rule is fine). An entry ["PS", source] drops raw PowerShell into
+    the script instead (the WFP steps; the source exits non-zero itself on failure).
+    Returns (ok, message)."""
     with _LOCK:
         fd, path = tempfile.mkstemp(prefix="dataguard-fw-", suffix=".ps1")
         log = path + ".log"
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
+            with os.fdopen(fd, "w", encoding="utf-8-sig") as f:
                 f.write("$ErrorActionPreference='Stop'\ntry {\n  $out = '%s'\n" % log.replace("'", "''"))
                 for argv in argvs:
+                    if argv and argv[0] == "PS":
+                        f.write(argv[1])
+                        if not argv[1].endswith("\n"):
+                            f.write("\n")
+                        continue
                     f.write("  " + _ps_line(argv) + " *> $out\n")
                     if len(argv) > 3 and argv[3] == "add":  # only a new rule may abort the sequence
                         f.write("  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n")
@@ -111,6 +119,8 @@ def _apply(argvs):
                     os.remove(p)
                 except OSError:
                     pass
+    if code != 0:
+        logging.warning("firewall: change failed (exit %s): %s", code, (out or "").strip()[-2000:])
     return _verdict(code, out)
 
 
@@ -140,13 +150,15 @@ def _rule_program(rule):
 
 
 def block_app(name, exe):
-    """Stop one program from reaching the internet. (ok, message)."""
+    """Stop one program from reaching the internet. (ok, message). The netsh rule keeps the
+    Windows Firewall UI informed; the WFP filter is what actually cuts the traffic."""
     if not exe:
         return False, "the program's file could not be found"
     if name.lower() in SYSTEM or exe.replace("\\", "/").rsplit("/", 1)[-1].lower() in SYSTEM:
         return False, "that is a Windows system service - blocking it could break the PC"
     rule = _rule_name(name)
     ok, msg = _apply([
+        ["PS", wfp.add_script(exe, rule)],
         ["netsh", "advfirewall", "firewall", "delete", "rule", "name=" + rule],
         ["netsh", "advfirewall", "firewall", "add", "rule", "name=" + rule,
          "dir=out", "action=block", "program=" + exe, "enable=yes"]])
@@ -155,24 +167,31 @@ def block_app(name, exe):
     exists, _ = _rule_program(rule)
     if not exists:
         return False, "Windows Firewall did not keep the rule"
+    if wfp.present(rule) is False:  # None = present but only the elevated writer could read it
+        return False, "Windows did not keep the block filter"
     return True, ""
 
 
 def ensure_block(name, exe):
-    """(ok, message): make sure the block rule is present and points at this file. Read-only
-    when all is well, so re-applying at startup costs no Windows prompt; a missing or stale
-    rule (app updated, firewall reset) is rebuilt through block_app."""
+    """(ok, message): make sure the block rule and its filter are present and point at this
+    file. Read-only when all is well, so re-applying at startup costs no Windows prompt; a
+    missing or stale rule (app updated, firewall reset) is rebuilt through block_app."""
     if not exe:
         return False, "the program's file could not be found"
-    exists, program = _rule_program(_rule_name(name))
-    if exists and (not program or os.path.normcase(program) == os.path.normcase(exe)):
+    rule = _rule_name(name)
+    exists, program = _rule_program(rule)
+    if (exists and (not program or os.path.normcase(program) == os.path.normcase(exe))
+            and wfp.present(rule) is not False):
         return True, ""
     return block_app(name, exe)
 
 
 def unblock_app(name):
     """Let a program reach the internet again. (ok, message)."""
-    return _apply([["netsh", "advfirewall", "firewall", "delete", "rule", "name=" + _rule_name(name)]])
+    rule = _rule_name(name)
+    return _apply([
+        ["PS", wfp.remove_script(rule)],
+        ["netsh", "advfirewall", "firewall", "delete", "rule", "name=" + rule]])
 
 
 def cut_active():

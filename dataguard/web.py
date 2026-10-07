@@ -86,14 +86,17 @@ class Handler(BaseHTTPRequestHandler):
                 name = parse_qs(urlparse(self.path).query).get("name", [""])[0]
                 exe = self.tracker.exe(name)
                 data = icons.png(exe)
-                if not data:
+                fallback = not data
+                if fallback:
                     if not exe:
                         logging.info("icon: no file known for %s, serving the generic icon", name)
                     data = icons.GENERIC
                 self.send_response(200)
                 self.send_header("Content-Type", "image/png")
                 self.send_header("Content-Length", str(len(data)))
-                self.send_header("Cache-Control", "max-age=86400")  # an exe's icon never changes
+                # an exe's icon never changes, but a generic glyph must not be stuck in the
+                # browser for a day: it would outlive the short retry window on the server
+                self.send_header("Cache-Control", "no-store" if fallback else "max-age=86400")
                 self.end_headers()
                 self.wfile.write(data)
             else:
