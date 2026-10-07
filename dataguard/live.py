@@ -42,7 +42,7 @@ class Monitor:
         self.stop = threading.Event()
         self.wake = threading.Event()     # lets a freshly opened dashboard end the slow idle sleep
         psutil.cpu_percent(interval=None)  # start the CPU meter: first call only sets the baseline
-        self.proc = psutil.Process()        # this app's own process: its CPU goes in the sidebar
+        self.proc = psutil.Process()        # this app's own process: its CPU and RAM go in the chip
         self.proc.cpu_percent(interval=None)  # first call only sets the per-process baseline
 
     # -- sampling
@@ -265,19 +265,16 @@ class Monitor:
             self.wake.clear()
 
     def ram_mb(self):
-        """This app's memory the way Task Manager accounts for it: the host process plus every
-        WebView2 child it owns. The host alone reads ~97 MB while the renderers hold ~600 MB."""
-        total = self.proc.memory_info().rss
-        try:
-            kids = self.proc.children(recursive=True)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            return total / 1048576
-        for kid in kids:
-            try:
-                total += kid.memory_info().rss
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue  # a renderer that exited between the walk and the read
-        return total / 1048576
+        """This process's own memory: the figure Task Manager shows for python.exe. The
+        WebView2 children that draw the dashboard are separate processes, so they stay out."""
+        return self.proc.memory_info().rss / 1048576
+
+    def app_cpu_pct(self):
+        """This process's CPU the way Task Manager reports it. psutil counts share of one
+        core (a saturated core reads 100%), Task Manager counts share of the whole machine -
+        on 12 cores the same moment reads 8.3% there. Divide to agree with it."""
+        cores = psutil.cpu_count() or 1
+        return self.proc.cpu_percent(interval=None) / cores
 
     def status(self):
         now = time.time()
@@ -303,7 +300,7 @@ class Monitor:
             and not fired_kill and not bool(self.kill_state)
         s.update(iface=self.iface, ssid=self.ssid, counting=self.counting, err=self.err,
                  cpu=psutil.cpu_percent(interval=None), mem=psutil.virtual_memory().percent,
-                 app_cpu=self.proc.cpu_percent(interval=None),
+                 app_cpu=self.app_cpu_pct(),
                  ram_mb=self.ram_mb(),
                  warn_today=warn_today,
                  kill=dict(active=bool(self.kill_state), pending=pending, gb=KILL_GB, fired=fired_kill),
