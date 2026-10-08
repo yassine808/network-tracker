@@ -1,5 +1,6 @@
 """Per-app usage history: a background sampler that records each program's bytes into SQLite."""
 
+import hashlib
 import json
 import logging
 import os
@@ -123,7 +124,7 @@ def _library_roots():
 
 
 
-SUITE = re.compile(r"[\\/](avast software|avg)[\\/]", re.I)  # security suites: one product, many .exe
+SUITE = re.compile(r"[\\/](avast software|alwil software|avg)[\\/]", re.I)  # security suites: one product, many .exe
 
 
 def _service_path(name):
@@ -149,7 +150,9 @@ def _service_path(name):
 def _suite_members(exe):
     """[(name, path)] for every program of the same security suite as `exe`: the vendor's whole
     folder in Program Files and in ProgramData (installer/updater copies live there).
-    Avast talks to the internet from many processes; blocking a few leaves the rest online."""
+    Avast talks to the internet from many processes; blocking a few leaves the rest online.
+    Members are keyed by full path - a ProgramData copy of the same file name is a DIFFERENT
+    binary with its own firewall rule; only the name gets suffixed on collision."""
     m = SUITE.search(exe or "")
     if not m:
         return []
@@ -157,24 +160,37 @@ def _suite_members(exe):
     pd = os.environ.get("PROGRAMDATA")
     if pd:
         roots.append(os.path.join(pd, m.group(1)))
-    out = {}
+    seen_paths, named, out = set(), {}, []
     for root in roots:
         if not os.path.isdir(root):
             continue
         try:
             for dp, dn, fn in os.walk(root):
-                if dp.count(os.sep) - root.count(os.sep) >= 4:
+                if dp.count(os.sep) - root.count(os.sep) >= 6:
                     dn[:] = []
                 for f in fn:
-                    if f.lower().endswith(".exe") and "unins" not in f.lower():
-                        out.setdefault(f, os.path.join(dp, f))
+                    if not f.lower().endswith(".exe") or "unins" in f.lower():
+                        continue
+                    p = os.path.normcase(os.path.join(dp, f))
+                    if p in seen_paths:
+                        continue
+                    seen_paths.add(p)
+                    n = f
+                    if n.lower() in named:  # same file name in two folders: keep both, name apart
+                        n = "%s (%s)" % (f, hashlib.md5(p.encode()).hexdigest()[:6])
+                    named[n.lower()] = p
+                    out.append((n, p))
         except OSError:
             pass
-    return list(out.items())[:50]
+    if len(out) > 150:
+        logging.warning("firewall: suite scan found %d programs, blocking only the first 150", len(out))
+        out = out[:150]
+    return out
 
 
 def _leak_check(delay=25):
-    """Log, a bit after a block, which Avast-related programs still hold connections."""
+    """Log, a bit after a block, which suite/System programs still hold connections.
+    Matching is broad on purpose: AVG and Alwil-branded trees share Avast's binaries."""
     def run():
         time.sleep(delay)
         try:
@@ -189,9 +205,11 @@ def _leak_check(delay=25):
                     n, ex = p.name(), p.exe()
                 except psutil.Error:
                     n, ex = "pid %d" % c.pid, ""
-                if c.pid == 4 or "avast" in (ex or "").lower() or n.lower().startswith(("avast", "asw")):
+                low_n, low_e = n.lower(), (ex or "").lower()
+                if (c.pid == 4 or "avast" in low_e or "avg" in low_e or "alwil" in low_e
+                        or low_n.startswith(("avast", "asw", "afw", "avg"))):
                     rows.setdefault("%s [%s]" % (n, ex or "?"), []).append("%s:%s" % (c.raddr.ip, c.raddr.port))
-            logging.info("firewall: %ds after the block, open Avast/System connections: %s", delay,
+            logging.info("firewall: %ds after the block, open suite/System connections: %s", delay,
                          {k: v[:4] for k, v in rows.items()} or "none")
         except Exception as e:
             logging.info("firewall: leak check failed: %s", e)
@@ -596,11 +614,15 @@ class AppTracker(threading.Thread):
         for name in sorted(self.blocked):
             for n, p in self.group(name):
                 items.setdefault(n, (n, p, bool(gate)))
-        logging.info("firewall: blocking %d program(s): %s", len(items), ", ".join(
-            "%s=%s" % (n, p or "NO FILE") for n, p, _ in items.values()))
+        logging.debug("firewall: syncing %d program(s) for %d blocked app(s)", len(items), len(self.blocked))
+        failed = 0
         for name, ok, err in firewall.sync_app_blocks(list(items.values())):
             if not ok:
+                failed += 1
                 logging.warning("firewall: %s: %s", name, err)
+        if failed:
+            logging.warning("firewall: %d of %d program(s) could not be %s", failed, len(items),
+                            "blocked" if gate else "unblocked")
         if gate and len(items) > 1:
             _leak_check()
 
@@ -610,6 +632,7 @@ class AppTracker(threading.Thread):
         self._start_index()  # so the first page load finds icons, not a disk walk
         threading.Thread(target=self._usage_loop, daemon=True, name="dataguard-winusage").start()
         gate = None  # None = the network is still unknown; judged on the first ticks
+        last_resync = 0.0
         while not self.stop_event.is_set():
             try:
                 self.tick()
@@ -620,6 +643,11 @@ class AppTracker(threading.Thread):
                     logging.info("firewall: network gate %s - remembered blocks %s",
                                  "opened" if gate else "closed",
                                  "are in place" if gate else "are removed until the Wi-Fi returns")
+                # Avast updates itself while blocked and drops new binaries: re-scan and
+                # re-apply the suite blocks every few minutes (read-only when nothing changed)
+                if gate and self.blocked and time.monotonic() - last_resync > 300:
+                    last_resync = time.monotonic()
+                    self.sync_blocks()
                 self.err = ""
             except Exception as e:  # never let a hiccup stop the tracker
                 self.err = f"{type(e).__name__}: {e}"

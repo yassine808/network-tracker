@@ -195,19 +195,34 @@ def _wfp_child(src):
 
 _RESET_TCP = r"""  try {
     if (-not ('DgTcp' -as [type])) {
-      Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class DgTcp { [StructLayout(LayoutKind.Sequential)] public struct ROW { public uint state; public uint la; public uint lp; public uint ra; public uint rp; } [DllImport("iphlpapi.dll")] public static extern int SetTcpEntry(ref ROW r); }'
+      Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class DgTcp { [StructLayout(LayoutKind.Sequential)] public struct ROW { public uint state; public uint la; public uint lp; public uint ra; public uint rp; } [StructLayout(LayoutKind.Sequential)] public struct ROW6 { [MarshalAs(UnmanagedType.ByValArray, SizeConst=16)] public byte[] la; public uint la_scope; public uint lp; [MarshalAs(UnmanagedType.ByValArray, SizeConst=16)] public byte[] ra; public uint ra_scope; public uint rp; public uint state; } [DllImport("iphlpapi.dll")] public static extern int SetTcpEntry(ref ROW r); [DllImport("iphlpapi.dll", EntryPoint="SetTcpEntry")] public static extern int SetTcpEntry6(ref ROW6 r); }'
     }
-    $ids = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -eq $exe } | ForEach-Object { $_.ProcessId })
+    $leaf = Split-Path $exe -Leaf
+    # protected services (AvastSvc) hide ExecutablePath - match the process name too
+    $ids = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -eq $exe -or $_.Name -eq $leaf } | ForEach-Object { $_.ProcessId })
     if ($ids.Count) {
-      foreach ($c in @(Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue | Where-Object { ($ids -contains $_.OwningProcess) -and ($_.LocalAddress -notmatch ':') })) {
-        $r = New-Object DgTcp+ROW
-        $r.state = 12
-        $r.la = [BitConverter]::ToUInt32(([IPAddress]$c.LocalAddress).GetAddressBytes(), 0)
-        $r.ra = [BitConverter]::ToUInt32(([IPAddress]$c.RemoteAddress).GetAddressBytes(), 0)
-        $lp = [int]$c.LocalPort; $rp = [int]$c.RemotePort
-        $r.lp = [uint32]((($lp -shl 8) -band 0xFF00) -bor (($lp -shr 8) -band 0xFF))
-        $r.rp = [uint32]((($rp -shl 8) -band 0xFF00) -bor (($rp -shr 8) -band 0xFF))
-        [void][DgTcp]::SetTcpEntry([ref]$r)
+      foreach ($c in @(Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue | Where-Object { $ids -contains $_.OwningProcess })) {
+        try {
+          $lp = [int]$c.LocalPort; $rp = [int]$c.RemotePort
+          if ($c.LocalAddress -match ':') {
+            $r = New-Object DgTcp+ROW6
+            $r.la = ([IPAddress]$c.LocalAddress).GetAddressBytes()
+            $r.ra = ([IPAddress]$c.RemoteAddress).GetAddressBytes()
+            $r.la_scope = 0; $r.ra_scope = 0
+            $r.lp = [uint32]((($lp -shl 8) -band 0xFF00) -bor (($lp -shr 8) -band 0xFF))
+            $r.rp = [uint32]((($rp -shl 8) -band 0xFF00) -bor (($rp -shr 8) -band 0xFF))
+            $r.state = 12
+            [void][DgTcp]::SetTcpEntry6([ref]$r)
+          } else {
+            $r = New-Object DgTcp+ROW
+            $r.state = 12
+            $r.la = [BitConverter]::ToUInt32(([IPAddress]$c.LocalAddress).GetAddressBytes(), 0)
+            $r.ra = [BitConverter]::ToUInt32(([IPAddress]$c.RemoteAddress).GetAddressBytes(), 0)
+            $r.lp = [uint32]((($lp -shl 8) -band 0xFF00) -bor (($lp -shr 8) -band 0xFF))
+            $r.rp = [uint32]((($rp -shl 8) -band 0xFF00) -bor (($rp -shr 8) -band 0xFF))
+            [void][DgTcp]::SetTcpEntry([ref]$r)
+          }
+        } catch { Add-Content -LiteralPath $out -Value $_.Exception.Message }
       }
     }
   } catch { Add-Content -LiteralPath $out -Value $_.Exception.Message }
