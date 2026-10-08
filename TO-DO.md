@@ -2,4 +2,4 @@
 - [] ram usage is still not accurate
 - [] add bandwith limit for each app
 - [] show download, upload for each app
-- [] hard block avast from using the internet (it still uses internet even tho it's blocked from the app)
+- [x] hard block avast from using the internet (it still uses internet even tho it's blocked from the app)
