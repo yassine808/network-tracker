@@ -139,8 +139,11 @@ def _apply(argvs):
                         "  exit 4\n}\n")
             code, out = _run_ps(path)
             try:
-                with open(log, "r", encoding="utf-8", errors="replace") as f:
-                    out = out + "\n" + f.read()
+                # PowerShell's *>/ *>> redirection writes UTF-16LE; only Set-Content in the
+                # catch path uses the default encoding - honor the BOM instead of guessing
+                raw = open(log, "rb").read()
+                enc = "utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8"
+                out = out + "\n" + raw.decode(enc, errors="replace")
             except OSError:
                 pass
         finally:

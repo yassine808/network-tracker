@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import socket
 import sqlite3
 import subprocess
 import threading
@@ -13,7 +14,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from .common import DB_NAME, IS_WIN, psutil
-from .processes import io_proxy
+from .processes import io_proxy, _remote_pids
 
 KEEP_DAYS = 400
 
@@ -196,7 +197,11 @@ def _leak_check(delay=25):
         try:
             rows = {}
             for c in psutil.net_connections(kind="inet"):
-                if not c.pid or not c.raddr or c.status != "ESTABLISHED":
+                if not c.pid or not c.raddr:
+                    continue
+                # UDP has no status (never "ESTABLISHED"), so only filter TCP; a suite
+                # talking DNS/NTP over UDP would otherwise be invisible to this check
+                if c.type == socket.SOCK_STREAM and c.status != "ESTABLISHED":
                     continue
                 if c.raddr.ip.startswith("127.") or c.raddr.ip == "::1":
                     continue
@@ -429,6 +434,7 @@ class AppTracker(threading.Thread):
         self.paths = {}     # app name -> its .exe, for the Apps page (icon + block button)
         self.blocked_file = Path(store.path).parent / "blocked.json"
         self.blocked = self._load_blocked()  # apps switched to "block internet", kept across restarts
+        self._block_lock = threading.Lock()  # a user toggle and the periodic resync must not interleave
         self.t_flush = time.time()
         self.stop_event = threading.Event()
         self._index = {}          # lowercase exe name -> path, built once in the background
@@ -561,41 +567,51 @@ class AppTracker(threading.Thread):
             return False, "per-app blocking runs on Windows only"
         from . import firewall
         members = self.group(name)
-        if on:
-            exe = dict(members).get(name)
-            ok, err = firewall.can_block(name, exe)
-            if not ok:
-                return False, err
-            if self.allowed():
+        with self._block_lock:
+            if on:
+                exe = dict(members).get(name)
+                ok, err = firewall.can_block(name, exe)
+                if not ok:
+                    return False, err
+                if self.allowed():
+                    if len(members) == 1:
+                        ok, err = firewall.block_app(name, exe)
+                        if not ok:
+                            return False, err
+                    else:  # a suite: all its programs in ONE change (one Windows prompt)
+                        items = [(n, p, True) for n, p in members if p]
+                        res = {n: (ok, msg) for n, ok, msg in firewall.sync_app_blocks(items)}
+                        for n, (ok, msg) in res.items():
+                            if not ok:
+                                logging.warning("firewall: %s: %s", n, msg)
+                        _leak_check()
+                        if not res.get(name, (False, ""))[0]:
+                            return False, res.get(name, (False, "could not block"))[1] or "could not block"
+            else:
                 if len(members) == 1:
-                    ok, err = firewall.block_app(name, exe)
-                    if not ok:
-                        return False, err
-                else:  # a suite: all its programs in ONE change (one Windows prompt)
-                    items = [(n, p, True) for n, p in members if p]
+                    if firewall.has_block(name):
+                        ok, err = firewall.unblock_app(name)
+                        if not ok:
+                            return False, err
+                else:  # one change here too: member-by-member lets the periodic resync
+                    # re-add a suite member the loop already removed (stray blocks)
+                    items = [(n, p, False) for n, p in members]
                     res = {n: (ok, msg) for n, ok, msg in firewall.sync_app_blocks(items)}
                     for n, (ok, msg) in res.items():
                         if not ok:
                             logging.warning("firewall: %s: %s", n, msg)
-                    _leak_check()
                     if not res.get(name, (False, ""))[0]:
-                        return False, res.get(name, (False, "could not block"))[1] or "could not block"
-        else:
-            for n, _ in members:
-                if firewall.has_block(n):
-                    ok, err = firewall.unblock_app(n)
-                    if not ok and n == name:
-                        return False, err
-        if on:
-            self.blocked.add(name)
-        else:
-            self.blocked.discard(name)
-        try:
-            tmp = self.blocked_file.with_suffix(".tmp")
-            tmp.write_text(json.dumps(sorted(self.blocked)), encoding="utf-8")
-            tmp.replace(self.blocked_file)
-        except OSError as e:
-            logging.warning("apps: could not save the blocked list: %s", e)
+                        return False, res.get(name, (False, "could not unblock"))[1] or "could not unblock"
+            if on:
+                self.blocked.add(name)
+            else:
+                self.blocked.discard(name)
+            try:
+                tmp = self.blocked_file.with_suffix(".tmp")
+                tmp.write_text(json.dumps(sorted(self.blocked)), encoding="utf-8")
+                tmp.replace(self.blocked_file)
+            except OSError as e:
+                logging.warning("apps: could not save the blocked list: %s", e)
         return True, ""
 
     def sync_blocks(self):
@@ -606,25 +622,30 @@ class AppTracker(threading.Thread):
         None (the meter has not learned the network yet) leaves Windows alone."""
         if not self.supported or not self.blocked:
             return
-        gate = self.allowed()
-        if gate is None:
-            return
-        from . import firewall
-        items = {}
-        for name in sorted(self.blocked):
-            for n, p in self.group(name):
-                items.setdefault(n, (n, p, bool(gate)))
-        logging.debug("firewall: syncing %d program(s) for %d blocked app(s)", len(items), len(self.blocked))
-        failed = 0
-        for name, ok, err in firewall.sync_app_blocks(list(items.values())):
-            if not ok:
-                failed += 1
-                logging.warning("firewall: %s: %s", name, err)
-        if failed:
-            logging.warning("firewall: %d of %d program(s) could not be %s", failed, len(items),
-                            "blocked" if gate else "unblocked")
-        if gate and len(items) > 1:
-            _leak_check()
+        if not self._block_lock.acquire(blocking=False):
+            return  # a user toggle is mid-flight; it leaves a consistent state, skip this round
+        try:
+            gate = self.allowed()
+            if gate is None:
+                return
+            from . import firewall
+            items = {}
+            for name in sorted(self.blocked):
+                for n, p in self.group(name):
+                    items.setdefault(n, (n, p, bool(gate)))
+            logging.debug("firewall: syncing %d program(s) for %d blocked app(s)", len(items), len(self.blocked))
+            failed = 0
+            for name, ok, err in firewall.sync_app_blocks(list(items.values())):
+                if not ok:
+                    failed += 1
+                    logging.warning("firewall: %s: %s", name, err)
+            if failed:
+                logging.warning("firewall: %d of %d program(s) could not be %s", failed, len(items),
+                                "blocked" if gate else "unblocked")
+            if gate and len(items) > 1:
+                _leak_check()
+        finally:
+            self._block_lock.release()
 
     def run(self):
         if not self.supported:
@@ -683,6 +704,7 @@ class AppTracker(threading.Thread):
             pids = None
         day = date.today().isoformat()
         cur, gained, blind = {}, 0, {}
+        remote = _remote_pids()  # who holds a real internet socket, for the suite-driver filter
 
         def acct(pid, name, v):
             nonlocal gained
@@ -701,7 +723,7 @@ class AppTracker(threading.Thread):
                 self.paths.setdefault(name, p.info["exe"])  # record for every process, connected or not
             name = _owner_name(p, name)  # WebView2/Electron helpers: bill the app that owns them
             try:
-                v = io_proxy(p)
+                v = io_proxy(p, remote)
             except (psutil.AccessDenied, psutil.Error, AttributeError):
                 if pids is None or p.pid in pids:
                     blind[p.pid] = name  # protected / packaged app: read it from WMI below
