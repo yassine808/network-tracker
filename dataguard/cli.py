@@ -104,7 +104,9 @@ def print_status(s, running):
         pace = "still learning (needs a couple of full days)"
     print(f"  Pace      {pace}")
     if running:
-        print(f"  Network   {s.get('iface')} - {'counting' if s.get('counting') else 'NOT counting (different Wi-Fi)'}")
+        mode = s.get("cfg", {}).get("count_mode", "auto")
+        note = "counting off" if mode == "off" else "counting" if s.get("counting") else "NOT counting (different Wi-Fi)"
+        print(f"  Network   {s.get('iface')} - {note}")
 
 
 def _seal_targets():

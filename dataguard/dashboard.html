@@ -33,6 +33,17 @@ nav{display:flex;gap:4px;padding:4px;border-radius:99px;background:var(--panel);
 .chip::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--faint);flex:none}
 .chip.ok{color:var(--ink)}.chip.ok::before{background:var(--ok);box-shadow:0 0 8px var(--ok)}
 .chip.warn::before{background:var(--warn)}
+.cnt{display:inline-flex;align-items:center;gap:8px;padding:4px 6px 4px 12px;border-radius:99px;background:var(--panel);border:1px solid var(--line);max-width:280px}
+.cnt .cdot{width:7px;height:7px;border-radius:50%;background:var(--faint);flex:none;transition:background .25s,box-shadow .25s}
+.cnt[data-state="on"] .cdot{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.cnt[data-state="err"] .cdot{background:var(--warn)}
+#netTxt{font-size:12px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cnt[data-state="on"] #netTxt{color:var(--ink)}
+.tsw{position:relative;width:34px;height:19px;flex:none;padding:0;border:0;border-radius:99px;background:var(--faint);cursor:pointer;transition:background .22s}
+.tsw::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:#0b1020;transition:transform .22s cubic-bezier(.32,.72,0,1)}
+.tsw.on{background:var(--ok)}
+.tsw.on::after{transform:translateX(15px)}
+.tsw:hover{box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 28%,transparent)}
 .sys{font:12px var(--mono);padding:5px 12px;border-radius:99px;background:var(--panel);border:1px solid var(--line)}
 .sys b{color:var(--ink);font-weight:600}
 main{flex:1;overflow-y:auto;padding:6px 24px 18px;min-height:0}
@@ -285,7 +296,7 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
     <button type="button" class="nav" data-go="settings">Settings</button>
   </nav>
   <div class="hr">
-    <span id="netState" class="chip">Connecting&hellip;</span>
+    <span id="netState" class="cnt" data-state="wait"><i class="cdot"></i><span id="netTxt">Starting&hellip;</span><button type="button" id="cntSw" class="tsw on" role="switch" aria-checked="true" title="Count traffic automatically, or stop counting entirely" aria-label="Counting: auto"></button></span>
     <span class="sys">CPU <b id="cpuV">-</b> &nbsp;RAM <b id="ramV">-</b></span>
   </div>
 </header>
@@ -651,11 +662,18 @@ function render(s) {
   $("#icoEth").style.display = wifi ? "none" : "";
   $("#icoWifi").classList.toggle("on", !!s.counting);
   $("#icoEth").classList.toggle("on", !!s.counting);
-  const st = $("#netState");
-  if (s.err) { st.className = "chip warn"; st.textContent = "Error: " + s.err; }
-  else if (s.counting === null) { st.className = "chip"; st.textContent = "Starting\u2026"; }
-  else if (s.counting) { st.className = "chip ok"; st.textContent = "Counting"; }
-  else { st.className = "chip"; st.textContent = "Not counted"; }
+  const auto = (s.cfg && s.cfg.count_mode) !== "off";
+  const sw = $("#cntSw");
+  sw.classList.toggle("on", auto);
+  sw.setAttribute("aria-checked", String(auto));
+  sw.title = auto ? "Counting automatically - click to stop counting" : "Counting is off - click to count automatically";
+  sw.setAttribute("aria-label", "Counting: " + (auto ? "auto" : "off"));
+  const st = $("#netState"), stTxt = $("#netTxt");
+  if (s.err) { st.dataset.state = "err"; stTxt.textContent = "Error: " + s.err; }
+  else if (!auto) { st.dataset.state = "off"; stTxt.textContent = "Not counting"; }
+  else if (s.counting === null) { st.dataset.state = "wait"; stTxt.textContent = "Starting\u2026"; }
+  else if (s.counting) { st.dataset.state = "on"; stTxt.textContent = "Counting"; }
+  else { st.dataset.state = "idle"; stTxt.textContent = "Not counted"; }
   txt("#cpuV", (s.app_cpu || 0).toFixed(1) + "%");
   txt("#ramV", s.ram_mb >= 1024 ? (s.ram_mb / 1024).toFixed(1) + " GB" : Math.round(s.ram_mb || 0) + " MB");
 
@@ -677,7 +695,7 @@ function render(s) {
   else { tag.className = "tag"; tag.textContent = "Learning"; note.textContent = "Needs 2 full days of data to predict"; }
 
   txt("#down", sz(s.down) + "/s"); txt("#up", sz(s.up) + "/s");
-  txt("#nc", s.counting === false ? "Not counted on this network" : "");
+  txt("#nc", !auto ? "Counting is off" : s.counting === false ? "Not counted on this network" : "");
   lastSeries = [s.series_down, s.series_up]; drawChart();
   heat(s.history, s.allowance);
 
@@ -944,6 +962,17 @@ $("#tbarReset").onclick = () => {
   toast("Bar restarted. Today's total is kept."); tick();
 };
 $("#netEdit").onclick = () => { go("settings"); $("#f_ssid").focus(); $("#f_ssid").select(); };
+$("#cntSw").onclick = async () => {
+  const on = !$("#cntSw").classList.contains("on");
+  $("#cntSw").classList.toggle("on", on);
+  try {
+    await post("/api/config", {count_mode: on ? "auto" : "off"});
+    toast(on ? "Counting is back on." : "Counting turned off."); sfx.saved(); tick();
+  } catch (e) {
+    toast("Couldn't change counting: " + e.message, "err");
+    $("#cntSw").classList.toggle("on", !on);
+  }
+};
 
 const go = key => {
   document.querySelectorAll("[data-p]").forEach(p => { p.hidden = p.dataset.p !== key; });
@@ -988,7 +1017,7 @@ applyFont(savedFont, false);
 
 async function tick() {
   try { render(await (await fetch("/api/status", {cache: "no-store"})).json()); }
-  catch (e) { const c = $("#netState"); c.className = "chip warn"; c.textContent = "Can't reach DataGuard"; console.error(e); }
+  catch (e) { const c = $("#netState"); c.dataset.state = "err"; $("#netTxt").textContent = "Can't reach DataGuard"; console.error(e); }
   try { renderApps(await (await fetch("/api/apps", {cache: "no-store"})).json()); }
   catch (e) { console.error(e); }
   clearTimeout(timer);

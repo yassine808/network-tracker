@@ -13,6 +13,7 @@ DEFAULTS = {
     "reserve_pct": 5,         # % of the plan kept untouched (phone overhead, rounding)
     "ssid": "",               # your phone's hotspot name; only that network is counted ("" = always count)
     "iface": "auto",          # network interface to watch, or "auto"
+    "count_mode": "auto",     # "auto" = count as usual; "off" = count nothing at all
     "alert_pcts": [50, 75, 90, 100],
     "burst_mb_per_min": 150,  # warn when a download runs faster than this (0 = off)
     "binary_gb": False,       # True if your carrier counts 1 GB = 1024 MB
@@ -67,6 +68,11 @@ def clean_cfg(new, base):
         out["ssid"] = str(new["ssid"]).strip()[:64]
     if "iface" in new:
         out["iface"] = str(new["iface"]).strip() or "auto"
+    if "count_mode" in new:
+        mode = str(new["count_mode"]).strip().lower()
+        if mode not in ("auto", "off"):
+            raise ValueError("count_mode must be 'auto' or 'off'")
+        out["count_mode"] = mode
     if "alert_pcts" in new:
         try:
             pcts = sorted({int(x) for x in new["alert_pcts"]})

@@ -89,6 +89,8 @@ class Monitor:
                                                or re.sub(r"\s+\d+$", "", self.ssid) == cfg["ssid"])
         else:
             counted = True
+        if cfg.get("count_mode", "auto") == "off":  # the dashboard's toggle: count nothing at all
+            counted = False
         self.counting = counted
 
         with self.store.lock:
@@ -206,10 +208,12 @@ class Monitor:
             if self.kill_state is None:
                 self.kill_state = firewall.cut_active()  # pick up a rule left over from a crash
             ssid, want = self.ssid or "", cfg["ssid"]
-            on = bool(want) and bool(ssid) and ssid == want
+            mode_off = cfg.get("count_mode", "auto") == "off"  # counting off: hands off the firewall
+            on = bool(want) and bool(ssid) and ssid == want and not mode_off
             off = bool(want) and bool(ssid) and ssid != want
             over = st.summary(datetime.fromtimestamp(now))["today"] >= KILL_GB * st.gb
-            if self.kill_state and (not want or off or not over):
+            auto_cut = st.fired.get("killday") == date.today().isoformat()  # the automatic cut, not a manual one
+            if self.kill_state and (not want or off or not over or (mode_off and auto_cut)):
                 ok, err = firewall.restore_internet()
                 if ok:
                     self.kill_state = False
@@ -301,7 +305,8 @@ class Monitor:
                              for a in self.store.log[-40:])
             s.update(cfg=dict(self.store.cfg), alerts=list(reversed(self.store.log[-10:])))
         # "about to be cut": the daily cap is reached and nothing has dealt with today yet
-        pending = bool(s["cfg"].get("ssid")) and s["today"] >= KILL_GB * self.store.gb \
+        pending = bool(s["cfg"].get("ssid")) and s["cfg"].get("count_mode", "auto") != "off" \
+            and s["today"] >= KILL_GB * self.store.gb \
             and not fired_kill and not bool(self.kill_state)
         s.update(iface=self.iface, ssid=self.ssid, counting=self.counting, err=self.err,
                  cpu=psutil.cpu_percent(interval=None), mem=psutil.virtual_memory().percent,
