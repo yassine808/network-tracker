@@ -126,11 +126,10 @@ h3{margin:0 0 2px;font-size:14px}
 .tbtn:hover{background:color-mix(in srgb,var(--acc) 28%,var(--panel2))}
 .tbtn:active{transform:translateY(1px)}
 .tbtn svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.tbtn.alert{background:var(--bad);border-color:transparent;color:#1a0707}
+.tbtn.alert{background:var(--bad);border-color:transparent;color:#1a0707;animation:pulse 1.4s ease-out infinite}
 .tbtn.alert:hover{background:#fca5a5}
 .tbtn[hidden]{display:none}
 @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(248,113,113,.55)}50%{box-shadow:0 0 0 8px rgba(248,113,113,0)}}
-.tbtn.alert{animation:pulse 1.4s ease-out infinite}
 .tag{display:inline-block;font-size:12.5px;font-weight:600;padding:3px 11px;border-radius:99px;background:color-mix(in srgb,currentColor 14%,transparent);text-transform:none;letter-spacing:0}
 
 /* heatmap */
@@ -170,21 +169,16 @@ input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
 
 /* settings cards */
 .cards{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
-.cards .panel{display:flex;flex-direction:column}
+.cards .panel{display:flex;flex-direction:column;--c:var(--acc);border-top:3px solid var(--c);background:linear-gradient(180deg,color-mix(in srgb,var(--c) 9%,var(--panel)),var(--panel) 70%);padding:12px 14px}
 .s2{grid-column:span 2}.s4{grid-column:span 4}.s6{grid-column:span 6}
-.cards .panel.dng{border-color:color-mix(in srgb,var(--bad) 35%,var(--line))}
+.cards .panel.dng{border-color:var(--line);border-top-color:var(--bad)}
 
 
-.cards .panel{--c:var(--acc);border-top:3px solid var(--c);background:linear-gradient(180deg,color-mix(in srgb,var(--c) 9%,var(--panel)),var(--panel) 70%)}
-.cards h2{color:var(--c);justify-content:flex-start;gap:9px;font-size:13px}
+.cards h2{color:var(--c);justify-content:flex-start;gap:9px;font-size:13px;margin-bottom:8px}
 .cards h2::before{content:"";width:9px;height:9px;border-radius:3px;background:var(--c);box-shadow:0 0 10px var(--c)}
 .cards input:focus,.cards select:focus{border-color:var(--c)}
 .cards input[type=checkbox]{accent-color:var(--c)}
 .cards button:not(.danger):hover{border-color:var(--c);color:var(--c)}
-.cards .panel.dng{border-color:var(--line);border-top-color:var(--bad)}
-
-.cards .panel{padding:12px 14px}
-.cards h2{margin-bottom:8px}
 .cards .form{gap:8px;margin:0}
 [data-p="settings"]{gap:10px}
 .fonts{display:flex;flex-wrap:wrap;gap:8px}
@@ -210,11 +204,11 @@ label.sw input:checked+i::after{transform:translateX(14px);background:#0b1020}
 label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
 /* apps */
 .apphead,.approw summary{display:grid;grid-template-columns:minmax(140px,1fr) 96px 84px 96px 124px;gap:14px;align-items:center}
-.apphead{font-size:12px;color:var(--mute);padding:12px 0 6px}
+.apphead{font-size:11.5px;color:var(--faint);padding:12px 14px 8px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
 .apphead[hidden]{display:none}
 .apphead span:nth-child(n+3){text-align:right}
-.approw{border-top:1px solid var(--line)}
-.approw summary{cursor:pointer;padding:10px 0;list-style:none}
+.approw{border-top:1px solid var(--line);border:1px solid transparent;border-radius:12px;padding:0 14px;margin-top:2px}
+.approw summary{cursor:pointer;padding:12px 0;list-style:none}
 .approw summary::-webkit-details-marker{display:none}
 .approw summary:hover .nm{color:var(--acc)}
 .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -222,7 +216,7 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
 .car{display:inline-block;color:var(--mute);margin-right:6px;transition:transform .15s}
 .approw[open] .car{transform:rotate(90deg)}
 .v1,.v2{text-align:right}.v1{color:var(--mute)}
-.blk{padding:4px 10px;font-size:12px;justify-self:end}
+.blk{padding:6px 14px;font-size:12px;justify-self:end;border-radius:99px}
 .blk.on{border-color:var(--bad);color:var(--bad)}
 .days{display:flex;gap:2px;align-items:flex-end;height:48px;margin:2px 0 6px;padding:0 4px}
 .days i{flex:1;min-height:2px;background:var(--acc);opacity:.65;border-radius:2px 2px 0 0}
@@ -241,16 +235,13 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
 .tab.on i{background:#0b1020;color:var(--acc)}
 .tab[data-tab="blocked"].on{background:var(--bad)}
 .tab[data-tab="blocked"].on i{color:var(--bad)}
-.sorts{display:inline-flex;gap:4px;padding:5px;border-radius:99px;background:var(--panel2);border:1px solid var(--line)}
+.sorts{display:inline-flex;gap:4px;padding:5px;margin:0;border-radius:99px;background:var(--panel2);border:1px solid var(--line)}
 .sg{border:0;background:transparent;color:var(--mute);font-weight:600;font-size:12.5px;padding:8px 15px;border-radius:99px}
 .sg:hover{color:var(--ink)}
 .sg.on{background:var(--panel);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}
 #appsNote{text-align:center;font-size:12px;color:var(--faint);margin:4px 0 8px}
-.apphead{padding:12px 14px 8px;font-size:11.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
-.approw{border:1px solid transparent;border-radius:12px;padding:0 14px;margin-top:2px}
 .approw+.approw{border-top-color:transparent}
 .approw:hover,.approw[open]{background:var(--panel2);border-color:var(--line)}
-.approw summary{padding:12px 0}
 .approw .nm{font-weight:600;display:flex;align-items:center}
 .approw .aic{width:28px;height:28px;margin-right:12px;border-radius:8px;padding:3px;flex:none;vertical-align:middle}
 .approw .car{margin-right:8px}
@@ -259,7 +250,6 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
 .ubar i{position:absolute;top:0;bottom:0;left:0;width:0;border-radius:99px;background:var(--acc);transition:width .3s ease}
 .approw.isblk .ubar i{background:var(--bad)}
 .approw.isblk .nm{color:var(--bad)}
-.blk{border-radius:99px;padding:6px 14px}
 .blk:hover{border-color:var(--bad);color:var(--bad)}
 .blk.on:hover{border-color:var(--ok);color:var(--ok)}
 .bempty{color:var(--mute);padding:28px 10px;text-align:center}
@@ -379,10 +369,10 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
       <button type="button" class="tab" data-tab="allowed">Allowed <i id="cAllowed">0</i></button>
       <button type="button" class="tab" data-tab="blocked">Blocked <i id="cBlocked">0</i></button>
     </div>
-    <div class="sorts" id="appSorts" role="group" aria-label="Sort applications by">
+    <fieldset class="sorts" id="appSorts" aria-label="Sort applications by">
       <button type="button" class="sg" data-sort="today">Today</button>
       <button type="button" class="sg on" data-sort="cycle">This cycle</button>
-    </div></div>
+    </fieldset></div>
     <div class="sub" id="appsNote">Loading&hellip;</div>
     <div class="apphead" id="appsHead" hidden><span>Application name</span><span>Usage</span><span>Today</span><span>This cycle</span><span></span></div>
     <div id="apps"></div></section>
@@ -450,15 +440,15 @@ const sz = b => {
 };
 const dstr = iso => new Date(iso + "T12:00:00").toLocaleDateString(undefined, {month: "short", day: "numeric"});
 const txt = (sel, t) => { $(sel).textContent = t; };
-const tone = p => p >= 90 ? "var(--bad)" : p >= 75 ? "var(--warn)" : "var(--ok)";
-const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+const tone = p => { if (p >= 90) { return "var(--bad)"; } if (p >= 75) { return "var(--warn)"; } return "var(--ok)"; };
+const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) { e.className = cls; } if (text !== undefined) { e.textContent = text; } return e; };
 const msg = t => toast(t);
 let toastTimer = 0, toastHide = 0;
 const toast = (t, kind) => {
   const el = $("#toast");
   el.textContent = t; el.className = kind || "";
   el.hidden = false; clearTimeout(toastHide); clearTimeout(toastTimer);
-  void el.offsetWidth; el.classList.add("show");
+  el.getBoundingClientRect(); el.classList.add("show");
   toastTimer = setTimeout(() => { el.classList.remove("show"); toastHide = setTimeout(() => { el.hidden = true; }, 300); }, 3400);
 };
 
@@ -489,7 +479,7 @@ function voice(o) {
       osc.connect(f); f.connect(g);
     } else osc.connect(g);
     g.connect(master); osc.start(t); osc.stop(t + d + .05);
-  } catch (e) {}
+  } catch (e) { console.debug("DataGuard sound unavailable", e); }
 }
 const chime = () => {
   [659, 784, 988].forEach((f, i) => {
@@ -517,7 +507,7 @@ const sfx = {
   cut:     () => { voice({f: 660, to: 110, d: .5, g: .14, type: "triangle", atk: .005}); voice({f: 82, d: .3, g: .1, t: .2}); },
   restore: () => { voice({f: 130, to: 523, d: .4, g: .13, type: "triangle"}); voice({f: 1046, d: .3, g: .08, t: .3}); }
 };
-function startAlarm() { if (alarmTimer) return; alarm(); alarmTimer = setInterval(alarm, 30000); }
+function startAlarm() { if (alarmTimer) { return; } alarm(); alarmTimer = setInterval(alarm, 30000); }
 function stopAlarm() { if (alarmTimer) { clearInterval(alarmTimer); alarmTimer = 0; } }
 
 /* ---- live chart (inside Today) ---- */
@@ -572,7 +562,7 @@ window.addEventListener("resize", drawChart);
 let hmKey = "";
 function heat(hist, allow) {
   const key = JSON.stringify(hist) + "|" + allow;
-  if (key === hmKey) return; hmKey = key;
+  if (key === hmKey) { return; } hmKey = key;
   const box = $("#hm"); box.replaceChildren();
   const peak = Math.max(...hist.map(h => h.b), 1);
   let over = 0, total = 0;
@@ -583,7 +573,9 @@ function heat(hist, allow) {
     total += h.b;
     const ref = Math.max(allow || 0, peak);
     const k = Math.round(Math.min(1, h.b / ref) * 100);
-    cell.style.background = isOver ? "var(--bad)" : h.b > 0 ? "color-mix(in srgb,var(--acc) " + Math.max(18, k) + "%,var(--panel2))" : "var(--panel2)";
+    if (isOver) { cell.style.background = "var(--bad)"; }
+    else if (h.b > 0) { cell.style.background = "color-mix(in srgb,var(--acc) " + Math.max(18, k) + "%,var(--panel2))"; }
+    else { cell.style.background = "var(--panel2)"; }
     const label = dstr(h.d) + " \u00b7 " + sz(h.b) + (isOver ? " (over limit)" : "");
     cell.title = label;
     cell.onmouseenter = () => txt("#hmhover", label);
@@ -612,7 +604,7 @@ function fillForm(s) {
 
 function fitRem() {
   const el = $("#rem");
-  const chars = Array.from(el.value).reduce((n, c) => n + (c === "." ? .45 : c === "-" ? .6 : 1), 0);
+  const chars = Array.from(el.value).reduce((n, c) => { if (c === ".") { return n + .45; } if (c === "-") { return n + .6; } return n + 1; }, 0);
   el.style.width = (chars + .45) + "ch";
 }
 
@@ -635,6 +627,63 @@ $("#fun").onclick = () => { funI++; txt("#fun", funText()); };
 setInterval(() => { funI++; txt("#fun", funText()); }, 6000);
 
 let killActive = false, veilTier = "";
+function renderNet(s, auto) {
+  const wifi = !!s.ssid || /^wi-?fi/i.test(s.iface || "");
+  txt("#netName", wifi ? (s.ssid || "Wi-Fi") : "Ethernet");
+  $("#icoWifi").style.display = wifi ? "" : "none";
+  $("#icoEth").style.display = wifi ? "none" : "";
+  $("#icoWifi").classList.toggle("on", !!s.counting);
+  $("#icoEth").classList.toggle("on", !!s.counting);
+  const sw = $("#cntSw");
+  sw.classList.toggle("on", auto);
+  sw.setAttribute("aria-checked", String(auto));
+  sw.title = auto ? "Counting automatically - click to stop counting" : "Counting is off - click to count automatically";
+  sw.setAttribute("aria-label", "Counting: " + (auto ? "auto" : "off"));
+  const st = $("#netState"), stTxt = $("#netTxt");
+  if (s.err) { st.dataset.state = "err"; stTxt.textContent = "Error: " + s.err; }
+  else if (!auto) { st.dataset.state = "off"; stTxt.textContent = "Not counting"; }
+  else if (s.counting === null) { st.dataset.state = "wait"; stTxt.textContent = "Starting\u2026"; }
+  else if (s.counting) { st.dataset.state = "on"; stTxt.textContent = "Counting"; }
+  else { st.dataset.state = "idle"; stTxt.textContent = "Not counted"; }
+  let nc = "";
+  if (!auto) { nc = "Counting is off"; } else if (s.counting === false) { nc = "Not counted on this network"; }
+  txt("#nc", nc);
+}
+function renderQuota(s, shown, pct) {
+  const tb = $("#tbar"); tb.style.width = Math.min(100, pct) + "%"; tb.style.background = tone(pct);
+  const rt = $("#ringT"); rt.style.strokeDashoffset = 100 - Math.min(100, pct); rt.style.color = tone(pct); rt.style.opacity = pct > .5 ? 1 : 0;
+  let html;
+  if (s.allowance <= 0) { html = "No daily quota left this cycle"; }
+  else if (shown <= s.allowance) { html = "<b>" + sz(s.allowance - shown) + "</b> left of today's <b>" + gb(s.allowance) + "</b>"; }
+  else { html = "Over today's <b>" + gb(s.allowance) + "</b> by <b>" + sz(shown - s.allowance) + "</b>"; }
+  $("#tnote").innerHTML = html;
+  const tag = $("#ptag"), note = $("#pnote");
+  if (s.pct >= 100) { tag.className = "tag bad"; tag.textContent = "Over plan"; note.textContent = sz(s.used) + " used \u00b7 " + s.days_left + " days to go"; }
+  else if (s.run_out) { tag.className = "tag bad"; tag.textContent = "Over pace"; note.textContent = "Runs out ~" + dstr(s.run_out) + " \u00b7 aim for " + gb(s.allowance) + "/day"; }
+  else if (s.pace_reliable) { tag.className = "tag ok"; tag.textContent = "On track"; note.textContent = gb(s.avg_daily) + "/day \u00b7 " + gb(Math.max(0, s.budget - s.projected)) + " spare at renewal"; }
+  else { tag.className = "tag"; tag.textContent = "Learning"; note.textContent = "Needs 2 full days of data to predict"; }
+}
+function renderAlerts(pct, dk) {
+  const tb = $("#tbar");
+  const silent = localStorage.getItem("dg_alarm_off") === dk;
+  tb.classList.toggle("bl1", pct >= 75 && pct < 90);
+  tb.classList.toggle("bl2", pct >= 90 && pct < 100);
+  tb.classList.toggle("bl3", pct >= 100 && !silent);
+  if (pct >= 75 && pct < 100 && localStorage.getItem("dg_chime_" + dk) !== "1") { chime(); localStorage.setItem("dg_chime_" + dk, "1"); }
+  if (pct >= 90 && pct < 100 && localStorage.getItem("dg_warn_" + dk) !== "1") { warnSfx(); localStorage.setItem("dg_warn_" + dk, "1"); }
+  if (pct >= 100 && !silent) startAlarm(); else stopAlarm();
+  $("#tbIgnore").hidden = !(pct >= 100 && !silent);
+}
+function renderKill(s, dk) {
+  const k = s.kill || {};
+  killActive = !!k.active;
+  $("#killBox").hidden = !k.active;
+  if (k.active) { txt("#killSub", "Today's " + (k.gb || 10) + " GB hotspot cap was reached. It lifts tomorrow, or restore it now."); }
+  const cutIg = localStorage.getItem("dg_ig_cut") === dk;
+  let tier = "";
+  if (k.active && !cutIg) { tier = "cut"; } else if (k.pending && !cutIg) { tier = "pending"; }
+  setVeil(tier, s);
+}
 function render(s) {
   U = {gb: s.unit_gb, mb: s.unit_mb};
   ST = s;
@@ -656,67 +705,28 @@ function render(s) {
   txt("#limnote", gb(Math.max(0, s.budget - s.used)) + " usable left");
   txt("#fun", funText());
 
-  const wifi = !!s.ssid || /^wi-?fi/i.test(s.iface || "");
-  txt("#netName", wifi ? (s.ssid || "Wi-Fi") : "Ethernet");
-  $("#icoWifi").style.display = wifi ? "" : "none";
-  $("#icoEth").style.display = wifi ? "none" : "";
-  $("#icoWifi").classList.toggle("on", !!s.counting);
-  $("#icoEth").classList.toggle("on", !!s.counting);
   const auto = (s.cfg && s.cfg.count_mode) !== "off";
-  const sw = $("#cntSw");
-  sw.classList.toggle("on", auto);
-  sw.setAttribute("aria-checked", String(auto));
-  sw.title = auto ? "Counting automatically - click to stop counting" : "Counting is off - click to count automatically";
-  sw.setAttribute("aria-label", "Counting: " + (auto ? "auto" : "off"));
-  const st = $("#netState"), stTxt = $("#netTxt");
-  if (s.err) { st.dataset.state = "err"; stTxt.textContent = "Error: " + s.err; }
-  else if (!auto) { st.dataset.state = "off"; stTxt.textContent = "Not counting"; }
-  else if (s.counting === null) { st.dataset.state = "wait"; stTxt.textContent = "Starting\u2026"; }
-  else if (s.counting) { st.dataset.state = "on"; stTxt.textContent = "Counting"; }
-  else { st.dataset.state = "idle"; stTxt.textContent = "Not counted"; }
+  renderNet(s, auto);
   txt("#cpuV", (s.app_cpu || 0).toFixed(1) + "%");
   txt("#ramV", s.ram_mb >= 1024 ? (s.ram_mb / 1024).toFixed(1) + " GB" : Math.round(s.ram_mb || 0) + " MB");
 
   txt("#today", sz(s.today));
   const dk = dayKey();
-  let base = parseFloat(localStorage.getItem("dg_tbar_" + dk) || "0"); if (!(base >= 0)) base = 0;
+  let base = Number.parseFloat(localStorage.getItem("dg_tbar_" + dk) || "0");
+  if (base < 0 || Number.isNaN(base)) { base = 0; }
   const shown = Math.max(0, s.today - base);
-  const r = s.allowance > 0 ? shown / s.allowance : (shown > 0 ? 2 : 0), pct = r * 100;
-  const tb = $("#tbar"); tb.style.width = Math.min(100, pct) + "%"; tb.style.background = tone(pct);
-  const rt = $("#ringT"); rt.style.strokeDashoffset = 100 - Math.min(100, pct); rt.style.color = tone(pct); rt.style.opacity = pct > .5 ? 1 : 0;
-  $("#tnote").innerHTML = s.allowance <= 0 ? "No daily quota left this cycle"
-    : shown <= s.allowance ? "<b>" + sz(s.allowance - shown) + "</b> left of today's <b>" + gb(s.allowance) + "</b>"
-    : "Over today's <b>" + gb(s.allowance) + "</b> by <b>" + sz(shown - s.allowance) + "</b>";
-
-  const tag = $("#ptag"), note = $("#pnote");
-  if (s.pct >= 100) { tag.className = "tag bad"; tag.textContent = "Over plan"; note.textContent = sz(s.used) + " used \u00b7 " + s.days_left + " days to go"; }
-  else if (s.run_out) { tag.className = "tag bad"; tag.textContent = "Over pace"; note.textContent = "Runs out ~" + dstr(s.run_out) + " \u00b7 aim for " + gb(s.allowance) + "/day"; }
-  else if (s.pace_reliable) { tag.className = "tag ok"; tag.textContent = "On track"; note.textContent = gb(s.avg_daily) + "/day \u00b7 " + gb(Math.max(0, s.budget - s.projected)) + " spare at renewal"; }
-  else { tag.className = "tag"; tag.textContent = "Learning"; note.textContent = "Needs 2 full days of data to predict"; }
+  let r = 0;
+  if (s.allowance > 0) { r = shown / s.allowance; } else if (shown > 0) { r = 2; }
+  const pct = r * 100;
+  renderQuota(s, shown, pct);
 
   txt("#down", sz(s.down) + "/s"); txt("#up", sz(s.up) + "/s");
-  txt("#nc", !auto ? "Counting is off" : s.counting === false ? "Not counted on this network" : "");
   lastSeries = [s.series_down, s.series_up]; drawChart();
   heat(s.history, s.allowance);
 
-  const silent = localStorage.getItem("dg_alarm_off") === dk;
-  tb.classList.toggle("bl1", pct >= 75 && pct < 90);
-  tb.classList.toggle("bl2", pct >= 90 && pct < 100);
-  tb.classList.toggle("bl3", pct >= 100 && !silent);
-  if (pct >= 75 && pct < 100 && localStorage.getItem("dg_chime_" + dk) !== "1") { chime(); localStorage.setItem("dg_chime_" + dk, "1"); }
-  if (pct >= 90 && pct < 100 && localStorage.getItem("dg_warn_" + dk) !== "1") { warnSfx(); localStorage.setItem("dg_warn_" + dk, "1"); }
-  if (pct >= 100 && !silent) startAlarm(); else stopAlarm();
-  $("#tbIgnore").hidden = !(pct >= 100 && !silent);
+  renderAlerts(pct, dk);
 
-  const k = s.kill || {};
-  killActive = !!k.active;
-  $("#killBox").hidden = !k.active;
-  if (k.active) txt("#killSub", "Today's " + (k.gb || 10) + " GB hotspot cap was reached. It lifts tomorrow, or restore it now.");
-
-  const cutIg = localStorage.getItem("dg_ig_cut") === dk;
-  let tier = "";
-  if (k.active && !cutIg) tier = "cut"; else if (k.pending && !cutIg) tier = "pending";
-  setVeil(tier, s);
+  renderKill(s, dk);
   if (!filled) fillForm(s);
 }
 
@@ -749,10 +759,9 @@ async function toggleBlock(btn, name, on) {
   try {
     const j = await post("/api/block_app", {app: name, on: on});
     const ssid = typeof ST === "object" && ST && ST.cfg ? ST.cfg.ssid : "";
-    appsFlash = !on ? "Allowed " + name + "."
-      : j.active === false
-        ? "Will block " + name + (ssid ? " on \u201c" + ssid + "\u201d" : " on the configured Wi-Fi") + " - this network isn't it."
-      : "Blocked internet for " + name + ".";
+    if (!on) { appsFlash = "Allowed " + name + "."; }
+    else if (j.active === false) { appsFlash = "Will block " + name + (ssid ? " on \u201c" + ssid + "\u201d" : " on the configured Wi-Fi") + " - this network isn't it."; }
+    else { appsFlash = "Blocked internet for " + name + "."; }
     toast(appsFlash);
     if (on) sfx.block(); else sfx.allow();
   } catch (e) { appsFlash = name + ": " + e.message; toast(appsFlash, "err"); }
@@ -827,8 +836,9 @@ function renderApps(a) {
   lastApps = a;
   const box = $("#apps"), note = $("#appsNote"), head = $("#appsHead");
   if (!a.supported) { head.hidden = true; box.replaceChildren(); note.textContent = "Per-app history only works on Windows."; return; }
-  note.textContent = appsFlash || (a.err ? "Tracker problem: " + a.err
-    : "Per-app totals are reconciled each minute to the Overview's own count. A blocked app records no usage while the block is enforced." + (a.diag ? " [" + a.diag + "]" : ""));
+  if (appsFlash) { note.textContent = appsFlash; }
+  else if (a.err) { note.textContent = "Tracker problem: " + a.err; }
+  else { note.textContent = "Per-app totals are reconciled each minute to the Overview's own count. A blocked app records no usage while the block is enforced." + (a.diag ? " [" + a.diag + "]" : ""); }
   const all = (a.apps || []).slice(), days = a.days || [];
   const known = new Set(all.map(r => r.app));
   (Array.isArray(a.blocked) ? a.blocked : []).forEach(n => {
@@ -839,7 +849,8 @@ function renderApps(a) {
   txt("#cAll", String(Math.max(a.count || 0, all.length)));
   txt("#cAllowed", String(allowed.length));
   txt("#cBlocked", String(blocked.length));
-  const rows = appTab === "blocked" ? blocked : appTab === "allowed" ? allowed : all;
+  let rows = all;
+  if (appTab === "blocked") { rows = blocked; } else if (appTab === "allowed") { rows = allowed; }
   rows.sort((x, y) => (y[appSort] || 0) - (x[appSort] || 0) || (y.cycle - x.cycle)
     || String(x.app).localeCompare(String(y.app)));
   const max = Math.max(1, ...rows.map(r => r[appSort] || 0));
@@ -854,7 +865,7 @@ function renderApps(a) {
   if (same) rows.forEach((r, n) => syncAppRow(have[n], r, days, max));
   else {
     const open = new Set(have.filter(d => d.open).map(d => d.dataset.app));
-    box.replaceChildren(...rows.map(r => { const d = buildAppRow(r, days, max); if (open.has(r.app)) d.open = true; return d; }));
+    box.replaceChildren(...rows.map(r => { const d = buildAppRow(r, days, max); if (open.has(r.app)) { d.open = true; } return d; }));
   }
 }
 
@@ -867,7 +878,7 @@ async function autoSave() {
     await post("/api/config", {
       plan_gb: plan, reset_day: day, reserve_pct: res,
       ssid: $("#f_ssid").value, iface: $("#f_iface").value,
-      alert_pcts: $("#f_alerts").value.split(",").map(x => parseInt(x, 10)).filter(x => x > 0),
+      alert_pcts: $("#f_alerts").value.split(",").map(x => Number.parseInt(x, 10)).filter(x => x > 0),
       burst_mb_per_min: Math.max(0, +$("#f_burst").value || 0), binary_gb: $("#f_bin").checked, notify: $("#f_notify").checked});
     if (seq === saveSeq) { msg("Saved \u2713"); sfx.saved(); }
     tick();
@@ -877,7 +888,7 @@ const queueSave = now => { clearTimeout(saveT); saveT = setTimeout(autoSave, now
 ["f_plan", "f_day", "f_res", "f_ssid", "f_alerts", "f_burst"].forEach(id => { $("#" + id).addEventListener("input", () => queueSave(false)); });
 ["f_bin", "f_notify", "f_iface"].forEach(id => { $("#" + id).addEventListener("change", () => queueSave(true)); });
 $("#planGb").onchange = async () => {
-  const el = $("#planGb"), v = parseFloat(el.value);
+  const el = $("#planGb"), v = Number.parseFloat(el.value);
   if (!(v >= 1 && v <= 100000)) { el.value = ST ? ST.cfg.plan_gb : ""; toast("Plan size must be between 1 and 100000 GB.", "err"); return; }
   try { await post("/api/config", {plan_gb: v}); $("#f_plan").value = v; toast("Plan set to " + v + " GB."); sfx.saved(); tick(); }
   catch (e) { toast("Couldn't save the plan size: " + e.message, "err"); if (ST) el.value = ST.cfg.plan_gb; }
@@ -901,8 +912,8 @@ function remRevert() {
   }
 }
 $("#rem").onchange = async () => {
-  const el = $("#rem"), plan = ST ? ST.cfg.plan_gb : null, v = parseFloat(el.value);
-  if (plan === null || !isFinite(v)) { remRevert(); toast("GB left must be a number.", "err"); return; }
+  const el = $("#rem"), plan = ST ? ST.cfg.plan_gb : null, v = Number.parseFloat(el.value);
+  if (plan === null || !Number.isFinite(v)) { remRevert(); toast("GB left must be a number.", "err"); return; }
   if (v > plan) { remRevert(); toast("Left can't be more than the " + plan + " GB plan.", "err"); return; }
   if (v < plan - 100000) { remRevert(); toast("GB left is out of range.", "err"); return; }
   try { await post("/api/calibrate", {gb: plan - v}); toast("Left set to " + v + " GB."); sfx.saved(); tick(); }
@@ -1028,5 +1039,5 @@ async function tick() {
   if (!document.hidden) timer = setTimeout(tick, 1000);
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { clearTimeout(timer); tick(); } });
-tick();
+void tick();
 </script></body></html>
