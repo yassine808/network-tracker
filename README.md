@@ -94,7 +94,7 @@ with any Python 3.8+ that has `psutil`.
 |---|--------|-------|
 | 1 | **Set your plan size.** Click the GB figure in the ring → type the plan → Enter. Or Settings → Plan. | Overview / Settings |
 | 2 | **Set the renewal day** (the day of the month your plan resets). | Settings → Plan |
-| 3 | **Name your hotspot.** Click the pencil next to the Wi-Fi name in the header, or Settings → Network → *Use current Wi-Fi*. **Only this exact network is counted.** Leave it empty to count every byte on the selected interface. | Header / Settings |
+| 3 | **Name your hotspot.** Click the pencil next to the Wi-Fi name in the header, or Settings → Network → *Use current Wi-Fi*. **Counting follows that network only** — and when Windows hides the name, the connection itself is the pin. Leave it empty to count every byte on the selected interface. | Header / Settings |
 | 4 | **Calibrate against the carrier.** Your carrier also counts your *phone's* traffic, which the laptop cannot see. Type `dataguard.py calibrate 12.4` (or set *GB left* in the ring) whenever the carrier app and DataGuard disagree. | CLI / Overview |
 | 5 | Optional: set your **reserve** (a % of the plan held back for phone overhead and rounding — 5 % of 60 GB = 3 GB) and **alert thresholds**. | Settings |
 
@@ -124,12 +124,14 @@ Open `http://127.0.0.1:8787` (or the app window / tray icon). Keyboard shortcuts
 
 ![DataGuard Apps tab: per-app data totals with Block internet buttons and filters](docs/screenshots/apps.png)
 
-- **Who's using data right now?** — press *Measure (3 s)* for a ranked estimate of active programs.
-- **Data by app** — per-app totals for today / this cycle / 30 days, each row expandable to a 30-day
+- **Data by app** — per-app totals for today / this cycle, each row expandable to a 30-day
   bar chart, with a **Block internet** button per app (writes real Windows Firewall + WFP rules).
   **Blocks are gated to your hotspot**: each rule applies tri-state — on your configured Wi-Fi the
   app is blocked, on any other network it is allowed, and DataGuard flips the rules with a single
   UAC prompt per network change (not one per app). Windows system processes can never be blocked.
+- **Reconciled to the Overview** — per-app totals are re-balanced each minute against the
+  Overview's own count, so the rows always add up to what was actually recorded; a blocked app
+  records no usage while its block is enforced.
 
 ### Settings
 
@@ -180,8 +182,10 @@ python dataguard.py --home D:\portable-dg run
 
 - **Counting rule.** Every 1 s (dashboard open) or 5 s (idle) the monitor reads the per-interface
   byte counters and stores the delta for the configured interface. If an SSID is configured, the
-  delta is recorded **only** when the current Wi-Fi name matches it exactly. Off that network:
-  nothing is recorded, no alerts fire, no projections are drawn, the firewall is never touched.
+  delta is recorded **only** on that network — the name must match (Windows sometimes saves a
+  profile as `Name 2`, which counts as `Name`), or, when Windows won't reveal the name at all,
+  the connection must be the pinned interface. Off that network: nothing is recorded, no alerts
+  fire, no projections are drawn, the firewall is never touched.
 - **Billing cycle.** `[reset_day of this month, reset_day of next month)`. All totals are recomputed
   from the daily rows on every read — there is no running counter to drift.
 - **Reserve.** `budget = plan × (1 − reserve_pct/100)`. The reserve is shown as part of the plan but
@@ -237,7 +241,7 @@ protection), accepts JSON only, and caps request bodies at 20 000 bytes.
 | GET | `/` | The dashboard page (self-contained HTML) |
 | GET | `/api/status` | Full status: totals, pace, alerts, live rates, history, system stats |
 | GET | `/api/top` | 3-second per-process estimate (429 if one is already measuring) |
-| GET | `/api/ssid` | Current Wi-Fi name |
+| GET | `/api/ssid` | Current Wi-Fi name and the interface counting follows (`{ssid, iface}`) |
 | GET | `/api/apps` | Per-app totals for cycle / today / 30 days |
 | GET | `/api/app_icon?name=` | App icon PNG (generic glyph as fallback) |
 | POST | `/api/config` | Update settings (validated) |
@@ -330,9 +334,9 @@ flowchart TD
     Q2 --> STOP["stop here"]
     G -->|no| CNT["counted = true"]
     G -->|yes| R["read SSID<br/>(every 30 s, or 3 s during big transfers)"]
-    R --> M{"SSID == configured?"}
+    R --> M{"name matches,<br/>or name hidden and<br/>same connection?"}
     M -->|yes| CNT
-    M -->|no / unknown| NC["counted = false"]
+    M -->|no| NC["counted = false"]
     CNT --> P1["append to 15-min ring"]
     NC --> P1
     P1 --> Z{"counted and bytes > 0?"}
@@ -476,17 +480,15 @@ flowchart LR
     end
 
     subgraph CI["GitHub Actions — windows-latest"]
-        C1["checks: pip install psutil"]
-        C2["python -m compileall"]
-        C3["python tests/smoke.py"]
-        C4["release: verify tag == __version__"]
-        C5["git archive → dist/dataguard-vX.zip"]
-        C6["installer/build.ps1<br/>embeddable Python 3.9.13 +<br/>psutil/pystray/pillow/pywebview<br/>+ app → payload"]
-        C7["Inno Setup ISCC →<br/>dist/DataGuard-Setup-vX.exe"]
-        C8["gh release create<br/>zip + exe"]
+        C1["5 checks: ruff lint · compileall<br/>smoke tests · bandit · pip-audit"]
+        C2["release: verify tag == __version__"]
+        C3["git archive → dist/dataguard-vX.zip"]
+        C4["installer/build.ps1<br/>embeddable Python 3.9.13 +<br/>psutil/pystray/pillow/pywebview<br/>+ app → payload"]
+        C5["Inno Setup ISCC →<br/>dist/DataGuard-Setup-vX.exe"]
+        C6["gh release create<br/>zip + exe"]
     end
 
-    T --> C1 --> C2 --> C3 --> C4 --> C5 --> C6 --> C7 --> C8
+    T --> C1 --> C2 --> C3 --> C4 --> C5 --> C6
 ```
 
 Local equivalent: `powershell -File installer/build.ps1` (needs Inno Setup 6 —
@@ -551,8 +553,18 @@ range checks, one-bad-setting repair, and a `node --check` parse of the dashboar
 
 ### CI
 
-On every push/PR: `compileall` + smoke tests on `windows-latest`. On a `v*` tag (after checks pass):
-verify the tag equals `__version__`, build the zip and the setup.exe, publish a GitHub release.
+Five checks run on every push/PR on `windows-latest` (`.github/workflows/ci.yml`):
+
+| Check | What it runs |
+|-------|--------------|
+| Lint | `ruff check` — rules pinned in `ruff.toml` (pycodestyle errors, pyflakes, warnings) |
+| Byte-compile | `python -m compileall dataguard dataguard.py` |
+| Smoke tests | `python tests/smoke.py` — 35 checks, ends with `node --check` of the dashboard script |
+| Security scan | `bandit -r dataguard` with documented skips for this codebase's patterns (fixed argv, localhost-only `urlopen`) |
+| Dependency audit | `pip-audit` on the pinned requirements; pillow/pystray are excluded until the Python floor reaches 3.10 (see `TO-DO.md`) |
+
+On a `v*` tag (after all five pass): verify the tag equals `__version__`, build the zip and the
+setup.exe, publish a GitHub release.
 
 ### Conventions
 
