@@ -1,5 +1,6 @@
 """Per-app activity: which programs are pulling data right now (Windows only)."""
 
+import logging
 import time
 
 from .common import IS_WIN, psutil
@@ -29,7 +30,8 @@ def _remote_pids():
     """{pid} for processes holding a non-loopback remote socket, or None when unreadable."""
     try:
         conns = psutil.net_connections(kind="inet")
-    except (psutil.AccessDenied, OSError):
+    except (psutil.AccessDenied, OSError) as e:
+        logging.debug("processes: socket list unreadable (%s); suite chatter NOT discounted", e)
         return None
     remote = set()
     for c in conns:
@@ -58,7 +60,8 @@ def loopback_pids():
     is talking to itself, not the internet - its 'other' bytes must not count as usage."""
     try:
         conns = psutil.net_connections(kind="inet")
-    except (psutil.AccessDenied, OSError):
+    except (psutil.AccessDenied, OSError) as e:
+        logging.debug("processes: socket list unreadable (%s); loopback filter inactive", e)
         return set()
     loop = set()
     remote = set()

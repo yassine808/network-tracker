@@ -121,8 +121,8 @@ def _dark_titlebar():
             if dwm.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(ctypes.c_int(dark)),
                                          ctypes.sizeof(ctypes.c_int)) == 0:
                 break
-    except Exception:
-        pass  # cosmetic
+    except Exception as e:
+        logging.debug("shell: dark titlebar not applied (%s) - cosmetic", e)
 
 
 def _focus():
@@ -133,8 +133,8 @@ def _focus():
         hwnd = u32.FindWindowW(None, TITLE)
         if hwnd:
             u32.SetForegroundWindow(hwnd)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.debug("shell: could not focus window (%s)", e)
 
 
 def run(url, open_now=False):
@@ -182,12 +182,12 @@ def run(url, open_now=False):
         if w is not None:
             try:
                 w.destroy()
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug("shell: window destroy failed on exit (%s)", e)
         try:
             icon.stop()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug("shell: tray icon stop failed on exit (%s)", e)
 
     icon = pystray.Icon("dataguard", im, TITLE,
                         pystray.Menu(pystray.MenuItem("Open DataGuard", open_win, default=True),
@@ -242,5 +242,5 @@ def run(url, open_now=False):
     finally:
         try:
             icon.stop()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug("shell: tray icon stop failed at teardown (%s)", e)

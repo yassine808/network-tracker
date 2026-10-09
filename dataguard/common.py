@@ -5,7 +5,7 @@ import sys
 if sys.version_info < (3, 8):
     sys.exit("DataGuard needs Python 3.8 or newer.")
 try:
-    import psutil
+    import psutil  # noqa: F401 - re-exported: every module pulls psutil from here
 except ImportError:
     sys.exit("DataGuard needs one package:  pip install psutil")
 

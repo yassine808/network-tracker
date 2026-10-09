@@ -169,7 +169,9 @@ class Monitor:
     def check_alerts(self, now):
         st = self.store
         s = st.summary(now)
-        g = lambda b: f"{b / st.gb:.1f} GB"
+
+        def g(b):
+            return f"{b / st.gb:.1f} GB"
         tkey = now.date().isoformat()
         out = []
         with st.lock:

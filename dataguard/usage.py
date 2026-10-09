@@ -56,6 +56,8 @@ class Store:
     def _quarantine(path):
         try:
             path.replace(path.with_name(path.name + ".bad"))  # keep the broken file, start fresh
+            logging.warning("usage: %s was unreadable; kept as %s and starting fresh",
+                            path.name, path.name + ".bad")
         except OSError:
             pass
 
@@ -181,8 +183,9 @@ class Store:
                                               self._pending)
                 self._pending = []
                 self.dirty = False
-            except sqlite3.Error:
-                pass  # disk full or locked: try again next time
+            except sqlite3.Error as e:
+                # disk full or locked: keep the memory copy and try again next time
+                logging.warning("usage: flush to %s failed (%s); will retry next flush", DB_NAME, e)
 
     @property
     def gb(self):
@@ -209,7 +212,11 @@ class Store:
 
     def set_config(self, new):
         with self.lock:
-            self.cfg = clean_cfg(new, self.cfg)
+            old, self.cfg = self.cfg, clean_cfg(new, self.cfg)
+            changed = {k: (old.get(k), v) for k, v in self.cfg.items() if old.get(k) != v}
+            if changed:
+                logging.info("usage: settings changed: %s",
+                             ", ".join(f"{k}: {a!r} -> {b!r}" for k, (a, b) in changed.items()))
             with self.conn:
                 self._put_settings(self.cfg)
 
@@ -219,6 +226,7 @@ class Store:
         with self.lock:
             start, _ = cycle_bounds(now.date(), self.cfg["reset_day"])
             skey = start.isoformat()
+            dropped = [k for k in self.days if k >= skey]
             self.days = {k: v for k, v in self.days.items() if k < skey}
             self.cal = {}
             self.fired = {"cycle": skey, "pcts": []}  # thresholds re-arm from zero, like a fresh cycle
@@ -226,6 +234,8 @@ class Store:
                 self.conn.execute("DELETE FROM days WHERE day >= ?", (skey,))
             self.dirty = True
             self.flush(force=True)
+            logging.info("usage: cycle reset to %s (%d day row(s) cleared, cal zeroed)",
+                         skey, len(dropped))
         return skey
 
     def calibrate(self, gb_used, now=None):
@@ -234,6 +244,8 @@ class Store:
         with self.lock:
             self.cal = {"cycle": s["cycle_start"], "offset": int(float(gb_used) * self.gb - s["counted"])}
             self.dirty = True
+            logging.info("usage: calibrated to %s GB (cycle %s, offset %+d bytes)", gb_used,
+                         s["cycle_start"], self.cal["offset"])
         return self.summary(now)
 
     def summary(self, now=None):

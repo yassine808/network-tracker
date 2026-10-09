@@ -1,6 +1,7 @@
 """Desktop notifications (fire-and-forget, one per platform)."""
 
 import base64
+import logging
 import os
 import shutil
 import subprocess
@@ -35,5 +36,6 @@ def notify(title, msg):
                               'with title (system attribute "DG_TITLE")'], **kw)
         elif shutil.which("notify-send"):
             subprocess.Popen(["notify-send", "-a", APP, title, msg], **kw)
-    except Exception:
-        pass
+    except Exception as e:
+        # fire-and-forget, but never silent: a toast that didn't show explains missing alerts
+        logging.warning("notify: could not show %r: %s", title, e)

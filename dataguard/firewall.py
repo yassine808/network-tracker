@@ -107,7 +107,7 @@ def _verdict(code, out):
         return True, ""
     if code == 3:
         return False, "Windows permission was declined"
-    lines = [l.strip() for l in (out or "").splitlines() if l.strip()]
+    lines = [ln.strip() for ln in (out or "").splitlines() if ln.strip()]
     return False, lines[-1] if lines else "Windows Firewall refused the change"
 
 
@@ -325,20 +325,6 @@ def block_app(name, exe):
     if not rule_ok:
         logging.warning("firewall: %s blocked by the WFP filter only (no firewall rule)", name)
     return True, ""
-
-
-def ensure_block(name, exe):
-    """(ok, message): make sure the block rule and its filter are present and point at this
-    file. Read-only when all is well, so re-applying at startup costs no Windows prompt; a
-    missing or stale rule (app updated, firewall reset) is rebuilt through block_app."""
-    if not exe:
-        return False, "the program's file could not be found"
-    rule = _rule_name(name)
-    exists, program = _rule_program(rule)
-    if (exists and (not program or os.path.normcase(program) == os.path.normcase(exe))
-            and wfp.present(rule) is not False):
-        return True, ""
-    return block_app(name, exe)
 
 
 def unblock_app(name):

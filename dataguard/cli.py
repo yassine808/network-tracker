@@ -91,7 +91,8 @@ def _ask_open(port):
 
 
 def print_status(s, running):
-    g = lambda b: f"{b / s['unit_gb']:.1f} GB"
+    def g(b):
+        return f"{b / s['unit_gb']:.1f} GB"
     print(f"DataGuard - {'running' if running else 'not running (showing saved data)'}")
     print(f"  Cycle     {s['cycle_start']} to {s['cycle_end']}  ({s['days_left']} days left)")
     print(f"  Used      {g(s['used'])} of {g(s['plan'])} plan ({s['pct']:.0f}%)")

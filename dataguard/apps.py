@@ -191,7 +191,7 @@ def _block_group(exe):
                     seen_paths.add(p)
                     n = f
                     if n.lower() in named:  # same file name in two folders: keep both, name apart
-                        n = "%s (%s)" % (f, hashlib.md5(p.encode()).hexdigest()[:6])
+                        n = "%s (%s)" % (f, hashlib.md5(p.encode(), usedforsecurity=False).hexdigest()[:6])
                     named[n.lower()] = p
                     out.append((n, p))
         except OSError:
@@ -260,7 +260,6 @@ def _owner_name(p, name):
 def _wmi_other():
     """{pid: cumulative 'other' I/O bytes} from the performance counters. Unlike psutil this
     also reads protected and packaged (Store) apps such as WhatsApp. {} on any failure."""
-    import subprocess
     try:
         r = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command",
