@@ -3,4 +3,4 @@
 `dataguard.py` in the parent folder is the entry point; it just calls `dataguard.cli.main()`.
 """
 
-__version__ = "1.3.0"
+__version__ = "1.3.1"

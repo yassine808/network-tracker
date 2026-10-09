@@ -838,7 +838,7 @@ class AppTracker(threading.Thread):
                 self.store.add(day, name, d)
                 gained += d
         self.base = cur
-        self.diag = "v1.3.0 · %s processes with connections, %d read via WMI, %d loopback-only, %d blocked%s" % (
+        self.diag = "v1.3.1 · %s processes with connections, %d read via WMI, %d loopback-only, %d blocked%s" % (
             "?" if pids is None else len(set(pids)), len(blind),
             len(loop - (remote or set())), blocked_skipped,
             "" if scale in (0.0, 1.0) else ", scaled %.0f%% to NIC" % (scale * 100))
