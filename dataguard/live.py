@@ -47,6 +47,24 @@ class Monitor:
         self.proc.cpu_percent(interval=None)  # first call only sets the per-process baseline
 
     # -- sampling
+    def on_network(self, want=None):
+        """True when the current network is the configured one, False when it provably isn't.
+        The pin is the Wi-Fi name when Windows reveals it; when the name is unreadable the
+        pin may also be the interface itself (the dashboard's "Use current Wi-Fi" falls back
+        to it), so a hotspot Windows won't name is still pinnable. None = name unreadable on
+        a Wi-Fi adapter - can't judge, so trust the adapter (the historical behavior)."""
+        want = self.store.cfg["ssid"] if want is None else want
+        if not want:
+            return True
+        ssid = self.ssid or ""
+        if ssid and (ssid == want or re.sub(r"\s+\d+$", "", ssid) == want):
+            return True  # "Meryem 2" (Windows adds a number to repeated profiles) is still "Meryem"
+        if self.iface and want == self.iface:
+            return True  # the user pinned the connection itself (name unreadable on this system)
+        if not ssid and WIFI.search(self.iface or ""):
+            return None
+        return False
+
     def sample(self, now=None, counters=None, stats=None):
         now = time.time() if now is None else now
         counters = psutil.net_io_counters(pernic=True) if counters is None else counters
@@ -83,13 +101,9 @@ class Monitor:
             big = drx + dtx >= 5_000_000
             if now - self.ssid_t >= self.SSID_EVERY or (big and now - self.ssid_t >= 3):
                 self.ssid, self.ssid_t = get_ssid(), now
-            # a hotspot is configured: only that exact network counts, an unknown or different
-            # name counts as nothing (the dashboard shows "Not counted on this network")
-            if self.ssid is None and WIFI.search(self.iface or ""):
-                counted = True  # Windows won't tell this PC the Wi-Fi name: trust the Wi-Fi adapter
-            else:  # "Meryem 2" (Windows adds a number to repeated profiles) is still "Meryem"
-                counted = bool(self.ssid) and (self.ssid == cfg["ssid"]
-                                               or re.sub(r"\s+\d+$", "", self.ssid) == cfg["ssid"])
+            # a hotspot is configured: only that network counts; None (name unreadable on
+            # Wi-Fi) counts as "trust the adapter", the dashboard shows the state live
+            counted = self.on_network() is not False
         else:
             counted = True
         if cfg.get("count_mode", "auto") == "off":  # the dashboard's toggle: count nothing at all
@@ -223,10 +237,11 @@ class Monitor:
         try:
             if self.kill_state is None:
                 self.kill_state = firewall.cut_active()  # pick up a rule left over from a crash
-            ssid, want = self.ssid or "", cfg["ssid"]
+            want = cfg["ssid"]
             mode_off = cfg.get("count_mode", "auto") == "off"  # counting off: hands off the firewall
-            on = bool(want) and bool(ssid) and ssid == want and not mode_off
-            off = bool(want) and bool(ssid) and ssid != want
+            gate = self.on_network(want) if want else None
+            on = gate is True and not mode_off
+            off = gate is False
             over = st.summary(datetime.fromtimestamp(now))["today"] >= KILL_GB * st.gb
             auto_cut = st.fired.get("killday") == date.today().isoformat()  # the automatic cut, not a manual one
             if self.kill_state and (not want or off or not over or (mode_off and auto_cut)):

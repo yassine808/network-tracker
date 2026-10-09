@@ -912,6 +912,10 @@ $("#useSsid").onclick = async () => {
   try {
     const j = await (await fetch("/api/ssid")).json();
     if (j.ssid) { $("#f_ssid").value = j.ssid; (msg("Wi-Fi name set to \u201c" + j.ssid + "\u201d."), queueSave(true)); }
+    else if (j.iface) {
+      $("#f_ssid").value = j.iface;
+      (msg("Windows won't reveal the Wi-Fi name here, so counting is pinned to the connection \u201c" + j.iface + "\u201d instead."), queueSave(true));
+    }
     else msg(j.ssid === "" ? "You're not on Wi-Fi right now." : "Couldn't read the Wi-Fi name on this system.");
   } catch (e) { msg(e.message); }
 };

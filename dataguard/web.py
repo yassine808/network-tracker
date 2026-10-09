@@ -75,7 +75,8 @@ class Handler(BaseHTTPRequestHandler):
                 finally:
                     TOP_LOCK.release()
             elif path == "/api/ssid":
-                self._json({"ssid": get_ssid()})
+                self._json({"ssid": get_ssid(),
+                            "iface": self.mon.iface if self.mon is not None else None})
             elif path == "/api/apps":
                 if self.tracker is None:
                     return self._json({"supported": False, "apps": [], "count": 0,
