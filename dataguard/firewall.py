@@ -30,6 +30,8 @@ ALLOW_RULE = "DataGuard-Allow-Local"
 BLOCK_PREFIX = "DataGuard-Block-"
 SEAL_RULE = "DataGuard-Self-Block-"
 SEAL_ALLOW = "DataGuard-Self-Allow-"
+_NAME_ARG = "name="   # netsh rule selector, spelled the same by every show/delete/add call
+_DIR_OUT = "dir=out"  # netsh direction token of an outbound rule
 
 # Blocking these would break Windows itself (DNS, logon, update...) - refuse politely.
 SYSTEM = {"svchost.exe", "lsass.exe", "services.exe", "wininit.exe", "csrss.exe", "smss.exe",
@@ -111,6 +113,48 @@ def _verdict(code, out):
     return False, lines[-1] if lines else "Windows Firewall refused the change"
 
 
+def _is_add(argv):
+    """True for a netsh `add rule` argv - the only kind that may abort the script."""
+    return len(argv) > 3 and argv[3] == "add"
+
+
+def _write_rules(f, argvs):
+    """Every entry of argvs as PowerShell source, plus the script's exit code."""
+    for argv in argvs:
+        if argv and argv[0] == "PS":
+            f.write(argv[1])
+            if not argv[1].endswith("\n"):
+                f.write("\n")
+            continue
+        f.write("  " + _ps_line(argv) + " *> $out\n")
+        if _is_add(argv):
+            f.write("  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n")
+    if any(_is_add(a) for a in argvs):
+        f.write("  exit $LASTEXITCODE\n")
+    else:
+        f.write("  exit 0\n")
+
+
+def _read_log(log, out):
+    """Append the redirection log to the captured output. PowerShell's *>/ *>> writes
+    UTF-16LE; only Set-Content in the catch path uses the default encoding - honor the
+    BOM instead of guessing."""
+    try:
+        raw = open(log, "rb").read()
+        enc = "utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8"
+        return out + "\n" + raw.decode(enc, errors="replace")
+    except OSError:
+        return out
+
+
+def _remove(*paths):
+    for p in paths:
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+
+
 def _apply(argvs):
     """Run netsh command(s), elevating once when needed. add-rules must succeed; deletes are
     best-effort (a missing rule is fine). An entry ["PS", source] drops raw PowerShell into
@@ -122,36 +166,13 @@ def _apply(argvs):
         try:
             with os.fdopen(fd, "w", encoding="utf-8-sig") as f:
                 f.write("$ErrorActionPreference='Stop'\ntry {\n  $out = '%s'\n" % log.replace("'", "''"))
-                for argv in argvs:
-                    if argv and argv[0] == "PS":
-                        f.write(argv[1])
-                        if not argv[1].endswith("\n"):
-                            f.write("\n")
-                        continue
-                    f.write("  " + _ps_line(argv) + " *> $out\n")
-                    if len(argv) > 3 and argv[3] == "add":  # only a new rule may abort the sequence
-                        f.write("  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n")
-                if any(len(a) > 3 and a[3] == "add" for a in argvs):
-                    f.write("  exit $LASTEXITCODE\n")
-                else:
-                    f.write("  exit 0\n")
+                _write_rules(f, argvs)
                 f.write("} catch {\n  Set-Content -LiteralPath $out -Value $_.Exception.Message\n"
                         "  exit 4\n}\n")
             code, out = _run_ps(path)
-            try:
-                # PowerShell's *>/ *>> redirection writes UTF-16LE; only Set-Content in the
-                # catch path uses the default encoding - honor the BOM instead of guessing
-                raw = open(log, "rb").read()
-                enc = "utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8"
-                out = out + "\n" + raw.decode(enc, errors="replace")
-            except OSError:
-                pass
+            out = _read_log(log, out)
         finally:
-            for p in (path, log):
-                try:
-                    os.remove(p)
-                except OSError:
-                    pass
+            _remove(path, log)
     if code == 0 and (out or "").strip():
         logging.info("firewall: change output: %s", (out or "").strip()[-1500:])
     if code != 0:
@@ -170,7 +191,7 @@ def _rule_program(rule):
     if not sys.platform.startswith("win"):
         return False, ""
     try:
-        r = subprocess.run(["netsh", "advfirewall", "firewall", "show", "rule", "name=" + rule],
+        r = subprocess.run(["netsh", "advfirewall", "firewall", "show", "rule", _NAME_ARG + rule],
                            capture_output=True, text=True, errors="replace",
                            timeout=6, creationflags=NO_WINDOW)
     except (OSError, subprocess.SubprocessError):
@@ -357,55 +378,69 @@ def _child(src):
             "  Remove-Item -LiteralPath $c -Force -ErrorAction SilentlyContinue\n" % blob)
 
 
+def _plan_item(name, exe, block, rule):
+    """(ok, message) read-only; ok None means the state differs and the item must be queued."""
+    if block:
+        exists, program = _rule_program(rule)
+        if (exists and (not program or os.path.normcase(program) == os.path.normcase(exe))
+                and wfp.present(rule) is not False):
+            return True, ""  # already in place: nothing to ask Windows for
+        ok, msg = can_block(name, exe)
+        if not ok:
+            return False, msg
+    elif not has_block(name):
+        return True, ""
+    return None, None
+
+
+def _verify_item(name, block, rule):
+    """Read-only re-check after the change: the batch's single exit code cannot say which
+    layer took on which app."""
+    try:
+        if block:
+            ok = _rule_program(rule)[0] or wfp.present(rule) is not False
+            logging.info("firewall: after block %s: rule=%s wfp=%s", name,
+                         _rule_program(rule)[0], wfp.present(rule))
+            return (True, "") if ok else (False, "Windows did not keep the block")
+        ok = not has_block(name)
+        return (True, "") if ok else (False, "Windows still has the block")
+    except Exception as e:
+        return (False, f"{type(e).__name__}: {e}")
+
+
+def _sync_todo(todo):
+    """Apply every queued change in ONE script, then re-check each item read-only."""
+    logging.info("firewall: syncing %d block state(s) in one change (%d on, %d off)",
+                 len(todo), sum(1 for t in todo if t[2]), sum(1 for t in todo if not t[2]))
+    for name, exe, block, rule in todo:
+        logging.info("firewall: %s %s -> %s (wfp present: %s)", "block" if block else "unblock",
+                     name, exe or "NO FILE", wfp.present(rule))
+    src = "".join(_child(_block_script(exe, rule) if block else _unblock_script(rule))
+                  for _, exe, block, rule in todo)
+    _apply([["PS", src]])  # the read-only re-check below decides, not this exit code
+    return {name: _verify_item(name, block, rule) for name, exe, block, rule in todo}
+
+
 def sync_app_blocks(items):
     """(name, ok, message) for every (name, exe, block) entry of items. States are compared
     read-only first and only the differences are written - all of them in ONE change, so a
     network flip costs at most one Windows prompt when DataGuard is not elevated, and none
-    when every state already matches. The read-only re-check after the change is the
-    verdict: the batch's single exit code cannot say which layer took on which app."""
+    when every state already matches."""
     if not sys.platform.startswith("win"):
         return [(n, False, "per-app blocking runs on Windows only") for n, _, _ in items]
     verdicts, todo = {}, []
     for name, exe, block in items:
         rule = _rule_name(name)
         try:
-            if block:
-                exists, program = _rule_program(rule)
-                if (exists and (not program or os.path.normcase(program) == os.path.normcase(exe))
-                        and wfp.present(rule) is not False):
-                    verdicts[name] = (True, "")  # already in place: nothing to ask Windows for
-                    continue
-                ok, msg = can_block(name, exe)
-                if not ok:
-                    verdicts[name] = (False, msg)
-                    continue
-            elif not has_block(name):
-                verdicts[name] = (True, "")
-                continue
-            todo.append((name, exe, block, rule))
+            ok, msg = _plan_item(name, exe, block, rule)
+            if ok is None:
+                todo.append((name, exe, block, rule))
+            else:
+                verdicts[name] = (ok, msg)
         except Exception as e:
             verdicts[name] = (False, f"{type(e).__name__}: {e}")
     if todo:
-        logging.info("firewall: syncing %d block state(s) in one change (%d on, %d off)",
-                     len(todo), sum(1 for t in todo if t[2]), sum(1 for t in todo if not t[2]))
-        for name, exe, block, rule in todo:
-            logging.info("firewall: %s %s -> %s (wfp present: %s)", "block" if block else "unblock",
-                         name, exe or "NO FILE", wfp.present(rule))
-        src = "".join(_child(_block_script(exe, rule) if block else _unblock_script(rule))
-                      for _, exe, block, rule in todo)
-        _apply([["PS", src]])  # the read-only re-check below decides, not this exit code
-        for name, exe, block, rule in todo:
-            try:
-                if block:
-                    ok = _rule_program(rule)[0] or wfp.present(rule) is not False
-                    logging.info("firewall: after block %s: rule=%s wfp=%s", name,
-                                 _rule_program(rule)[0], wfp.present(rule))
-                    verdicts[name] = (True, "") if ok else (False, "Windows did not keep the block")
-                else:
-                    ok = not has_block(name)
-                    verdicts[name] = (True, "") if ok else (False, "Windows still has the block")
-            except Exception as e:
-                verdicts[name] = (False, f"{type(e).__name__}: {e}")
+        verdicts.update(_sync_todo(todo))
     return [(n, *verdicts.get(n, (False, "state was not checked"))) for n, _, _ in items]
 
 
@@ -418,26 +453,49 @@ def cut_internet():
     """Block all outbound internet, keeping loopback and the local network usable (the dashboard
     and the printer keep working). (ok, message)."""
     return _apply([
-        ["netsh", "advfirewall", "firewall", "delete", "rule", "name=" + ALLOW_RULE],
-        ["netsh", "advfirewall", "firewall", "delete", "rule", "name=" + CUT_RULE],
-        ["netsh", "advfirewall", "firewall", "add", "rule", "name=" + ALLOW_RULE,
-         "dir=out", "action=allow", "remoteip=127.0.0.1,localsubnet"],
-        ["netsh", "advfirewall", "firewall", "add", "rule", "name=" + CUT_RULE,
-         "dir=out", "action=block", "remoteip=any"]])
+        ["netsh", "advfirewall", "firewall", "delete", "rule", _NAME_ARG + ALLOW_RULE],
+        ["netsh", "advfirewall", "firewall", "delete", "rule", _NAME_ARG + CUT_RULE],
+        ["netsh", "advfirewall", "firewall", "add", "rule", _NAME_ARG + ALLOW_RULE,
+         _DIR_OUT, "action=allow", "remoteip=127.0.0.1,localsubnet"],
+        ["netsh", "advfirewall", "firewall", "add", "rule", _NAME_ARG + CUT_RULE,
+         _DIR_OUT, "action=block", "remoteip=any"]])
 
 
 def restore_internet():
     """Remove the cutoff rules. Deletes are best-effort: already gone counts as success."""
     logging.info("firewall: restoring internet access")
     return _apply([
-        ["netsh", "advfirewall", "firewall", "delete", "rule", "name=" + CUT_RULE],
-        ["netsh", "advfirewall", "firewall", "delete", "rule", "name=" + ALLOW_RULE]])
+        ["netsh", "advfirewall", "firewall", "delete", "rule", _NAME_ARG + CUT_RULE],
+        ["netsh", "advfirewall", "firewall", "delete", "rule", _NAME_ARG + ALLOW_RULE]])
 
 
 def _seal_names(exe):
     base = exe.replace("\\", "/").rsplit("/", 1)[-1]
     safe = "".join(c if c.isalnum() or c in ".-_" else "_" for c in base)[:60]
     return SEAL_RULE + safe, SEAL_ALLOW + safe
+
+
+def _seal_missing(exe):
+    """netsh argvs that rebuild the seal rules of one interpreter; already-valid rules are skipped."""
+    block, allow = _seal_names(exe)
+    argvs = []
+    for rule, act, extra in ((allow, "allow", ["remoteip=127.0.0.1,localsubnet"]),
+                             (block, "block", [])):
+        exists, program = _rule_program(rule)
+        if exists and (not program or os.path.normcase(program) == os.path.normcase(exe)):
+            continue
+        argvs += [["netsh", "advfirewall", "firewall", "delete", "rule", _NAME_ARG + rule],
+                  ["netsh", "advfirewall", "firewall", "add", "rule", _NAME_ARG + rule,
+                   _DIR_OUT, "action=" + act, "program=" + exe] + extra]
+    return argvs
+
+
+def _seal_kept(exes):
+    """True when Windows still holds the self-block rule of every existing interpreter."""
+    for exe in exes:
+        if exe and os.path.isfile(exe) and not _rule_program(_seal_names(exe)[0])[0]:
+            return False
+    return True
 
 
 def seal_app(exes):
@@ -450,22 +508,13 @@ def seal_app(exes):
     for exe in exes:
         if not exe or not os.path.isfile(exe):
             continue
-        block, allow = _seal_names(exe)
-        for rule, act, extra in ((allow, "allow", ["remoteip=127.0.0.1,localsubnet"]),
-                                 (block, "block", [])):
-            exists, program = _rule_program(rule)
-            if exists and (not program or os.path.normcase(program) == os.path.normcase(exe)):
-                continue
-            argvs += [["netsh", "advfirewall", "firewall", "delete", "rule", "name=" + rule],
-                      ["netsh", "advfirewall", "firewall", "add", "rule", "name=" + rule,
-                       "dir=out", "action=" + act, "program=" + exe] + extra]
+        argvs += _seal_missing(exe)
     if not argvs:
         return True, ""  # already sealed: nothing to ask Windows for
     ok, msg = _apply(argvs)
     if not ok:
         return ok, msg
-    for exe in exes:
-        if exe and os.path.isfile(exe) and not _rule_program(_seal_names(exe)[0])[0]:
-            return False, "Windows Firewall did not keep the self-block rule"
+    if not _seal_kept(exes):
+        return False, "Windows Firewall did not keep the self-block rule"
     logging.info("firewall: sealed DataGuard from the internet (%s)", ", ".join(exes))
     return True, ""

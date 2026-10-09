@@ -51,8 +51,8 @@ def png(path):
         hit = _cache.get(path)
         if hit and (hit[0] is not None or now - hit[1] < FAIL_TTL):
             return hit[0]
-    Image = _image_cls()
-    if Image is None:
+    pil = _image_cls()
+    if pil is None:
         data, why = None, "Pillow is not installed"
         logging.warning("icon: no icon for %s: %s (retry in %ds)", path, why, int(FAIL_TTL))
         with _lock:
@@ -63,9 +63,9 @@ def png(path):
             hit = _cache.get(path)
             if hit and (hit[0] is not None or time.time() - hit[1] < FAIL_TTL):
                 return hit[0]
-        data, why = _extract(path, Image)
+        data, why = _extract(path, pil)
         if data is None and "Pillow" not in why:
-            data, why = _extract(path, Image)  # shell/GDI hiccups are transient: try once more
+            data, why = _extract(path, pil)  # shell/GDI hiccups are transient: try once more
         if data is None:
             logging.warning("icon: no icon for %s: %s (retry in %ds)", path, why, int(FAIL_TTL))
         with _lock:
@@ -73,7 +73,7 @@ def png(path):
         return data
 
 
-def _extract(path, Image):
+def _extract(path, pil):
     """(PNG bytes, "") or (None, why it failed)."""
     from ctypes import wintypes
 
@@ -149,7 +149,7 @@ def _extract(path, Image):
                     return None, "the icon's bitmap could not be read"
             finally:
                 u32.ReleaseDC(None, hdc)
-            img = Image.frombytes("RGBA", (w, h), bytes(buf), "raw", "BGRA", 0, 1)
+            img = pil.frombytes("RGBA", (w, h), bytes(buf), "raw", "BGRA", 0, 1)
             if not img.getextrema()[3][1]:  # alpha channel all zero: the icon carried no mask
                 img.putalpha(255)
             out = io.BytesIO()

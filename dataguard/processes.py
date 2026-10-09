@@ -76,6 +76,26 @@ def loopback_pids():
     return loop - remote  # only fully-local processes: one real socket beats the loopback ones
 
 
+def _snap(remote):
+    """(io-bytes-by-pid, nameless-pids): one moment's per-process 'other' I/O snapshot."""
+    try:
+        pids = {c.pid for c in psutil.net_connections(kind="inet") if c.pid}
+    except (psutil.AccessDenied, OSError):
+        pids = None
+    vals, blind = {}, {}
+    for p in psutil.process_iter(["name"]):
+        if pids is not None and p.pid not in pids:
+            continue
+        name = p.info.get("name") or f"pid {p.pid}"
+        try:
+            vals[p.pid] = (name, io_proxy(p, remote))
+        except psutil.AccessDenied:
+            blind[p.pid] = name
+        except (psutil.Error, AttributeError):
+            pass
+    return vals, blind
+
+
 def top_processes(window=3.0, limit=8):
     """Windows only: rank apps by recent 'other' I/O among processes that own network sockets. An estimate,
     not exact bytes. Linux and macOS have no comparable per-process counter, so the view reports itself unavailable."""
@@ -83,28 +103,9 @@ def top_processes(window=3.0, limit=8):
         return {"supported": False, "items": [], "blind": [], "window": window}
 
     remote = _remote_pids()
-
-    def snap():
-        try:
-            pids = {c.pid for c in psutil.net_connections(kind="inet") if c.pid}
-        except (psutil.AccessDenied, OSError):
-            pids = None
-        vals, blind = {}, {}
-        for p in psutil.process_iter(["name"]):
-            if pids is not None and p.pid not in pids:
-                continue
-            name = p.info.get("name") or f"pid {p.pid}"
-            try:
-                vals[p.pid] = (name, io_proxy(p, remote))
-            except psutil.AccessDenied:
-                blind[p.pid] = name
-            except (psutil.Error, AttributeError):
-                pass
-        return vals, blind
-
-    before, _ = snap()
+    before, _ = _snap(remote)
     time.sleep(window)
-    after, blind = snap()
+    after, blind = _snap(remote)
     rows = {}
     for pid, (name, v1) in after.items():
         if pid in before and v1 >= before[pid][1]:

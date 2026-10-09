@@ -24,8 +24,9 @@ $n = [Windows.UI.Notifications.ToastNotification]::new($x)
 def notify(title, msg):
     """Fire-and-forget desktop notification; quietly does nothing if the OS can't show one."""
     try:
-        kw = dict(env=dict(os.environ, DG_TITLE=title, DG_MSG=msg), stdin=subprocess.DEVNULL,
-                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=NO_WINDOW)
+        env = {**os.environ, "DG_TITLE": title, "DG_MSG": msg}
+        kw = {"env": env, "stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
+              "stderr": subprocess.DEVNULL, "creationflags": NO_WINDOW}
         if IS_WIN:
             enc = base64.b64encode(PS_TOAST.encode("utf-16-le")).decode()
             subprocess.Popen(["powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",

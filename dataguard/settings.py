@@ -45,6 +45,25 @@ def cycle_bounds(today, reset_day):
     return start, end
 
 
+def _clean_count_mode(new, out):
+    if "count_mode" in new:
+        mode = str(new["count_mode"]).strip().lower()
+        if mode not in ("auto", "off"):
+            raise ValueError("count_mode must be 'auto' or 'off'")
+        out["count_mode"] = mode
+
+
+def _clean_alert_pcts(new, out):
+    if "alert_pcts" in new:
+        try:
+            pcts = sorted({int(x) for x in new["alert_pcts"]})
+        except (TypeError, ValueError):
+            raise ValueError("alert_pcts must be a list of whole numbers")
+        if len(pcts) > 8 or not all(1 <= p <= 300 for p in pcts):
+            raise ValueError("alert_pcts: up to 8 values between 1 and 300")
+        out["alert_pcts"] = pcts
+
+
 def clean_cfg(new, base):
     """Validate settings (from the file or the dashboard); raises ValueError with a readable message."""
     out = dict(base)
@@ -68,19 +87,8 @@ def clean_cfg(new, base):
         out["ssid"] = str(new["ssid"]).strip()[:64]
     if "iface" in new:
         out["iface"] = str(new["iface"]).strip() or "auto"
-    if "count_mode" in new:
-        mode = str(new["count_mode"]).strip().lower()
-        if mode not in ("auto", "off"):
-            raise ValueError("count_mode must be 'auto' or 'off'")
-        out["count_mode"] = mode
-    if "alert_pcts" in new:
-        try:
-            pcts = sorted({int(x) for x in new["alert_pcts"]})
-        except (TypeError, ValueError):
-            raise ValueError("alert_pcts must be a list of whole numbers")
-        if len(pcts) > 8 or not all(1 <= p <= 300 for p in pcts):
-            raise ValueError("alert_pcts: up to 8 values between 1 and 300")
-        out["alert_pcts"] = pcts
+    _clean_count_mode(new, out)
+    _clean_alert_pcts(new, out)
     for key in ("binary_gb", "notify"):
         if key in new:
             out[key] = bool(new[key])

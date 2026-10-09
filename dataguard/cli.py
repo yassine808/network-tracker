@@ -12,7 +12,7 @@ import webbrowser
 from datetime import date
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from urllib.error import HTTPError, URLError
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from .apps import AppStore, AppTracker
@@ -28,6 +28,7 @@ ENTRY_SCRIPT = Path(__file__).resolve().parents[1] / "dataguard.py"  # what star
 LOG_CAP = 16 * 1024 * 1024  # dataguard.log never grows past this
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"  # where Windows keeps logon apps
 RUN_NAME = "DataGuard"
+PYTHONW = "pythonw.exe"  # the console-less interpreter: hidden launches must use it
 
 
 class SmallLog(RotatingFileHandler):
@@ -45,12 +46,23 @@ class SmallLog(RotatingFileHandler):
             self.stream = self._open()
 
 
+def _safe_home(home):
+    """--home arrives straight from argv: NUL/newline characters can smuggle a path past
+    mkdir/open, so reject them, then resolve. The resolved folder is the base the app owns;
+    the log path is a fixed literal joined to it, so it provably stays inside."""
+    text = os.fspath(home)
+    if "\x00" in text or "\n" in text or "\r" in text:
+        raise ValueError(f"invalid home path: {text!r}")
+    return Path(text).resolve()
+
+
 def setup_logging(home):
     """Everything worth keeping goes to dataguard.log in the home folder, plus the console."""
+    home = _safe_home(home)
     # the home folder does not exist until something makes it, and logging is the first thing
     # that runs: a first launch would otherwise die here, silently (pythonw has no stderr)
-    Path(home).mkdir(parents=True, exist_ok=True)
-    file_h = SmallLog(str(Path(home) / "dataguard.log"), maxBytes=LOG_CAP, backupCount=0, encoding="utf-8")
+    home.mkdir(parents=True, exist_ok=True)
+    file_h = SmallLog(str(home / "dataguard.log"), maxBytes=LOG_CAP, backupCount=0, encoding="utf-8")
     file_h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
     con_h = logging.StreamHandler(sys.stdout)
     con_h.setFormatter(logging.Formatter("[%(asctime)s] %(message)s", "%H:%M:%S"))
@@ -73,7 +85,7 @@ def api(port, path, payload=None):
         except Exception:
             reason = e.reason
         sys.exit(f"DataGuard says: {reason}")
-    except (URLError, OSError, ValueError):
+    except (OSError, ValueError):  # URLError/HTTPError derive from OSError
         return None
 
 
@@ -86,7 +98,7 @@ def _ask_open(port):
     try:
         with urlopen(req, timeout=5) as r:
             return bool(json.loads(r.read()).get("ok"))
-    except (HTTPError, URLError, OSError, ValueError):
+    except (OSError, ValueError):  # HTTPError/URLError derive from OSError
         return False
 
 
@@ -108,7 +120,12 @@ def print_status(s, running):
     print(f"  Pace      {pace}")
     if running:
         mode = s.get("cfg", {}).get("count_mode", "auto")
-        note = "counting off" if mode == "off" else "counting" if s.get("counting") else "NOT counting (different Wi-Fi)"
+        if mode == "off":
+            note = "counting off"
+        elif s.get("counting"):
+            note = "counting"
+        else:
+            note = "NOT counting (different Wi-Fi)"
         print(f"  Network   {s.get('iface')} - {note}")
 
 
@@ -121,7 +138,81 @@ def _seal_targets():
     exe_dir = Path(sys.executable).resolve().parent
     if exe_dir != here:
         return []
-    return [str(p) for p in (exe_dir / "python.exe", exe_dir / "pythonw.exe") if p.is_file()]
+    return [str(p) for p in (exe_dir / "python.exe", exe_dir / PYTHONW) if p.is_file()]
+
+
+def _bind_server(port):
+    """Claim the dashboard port, retrying while a copy that is still shutting down holds it.
+    Returns the server, or None if something else owns the port."""
+    tries = 8 if os.environ.get("DG_RESTART") else 1
+    for attempt in range(tries):
+        try:
+            return Server(("127.0.0.1", port), Handler)
+        except OSError:
+            if attempt < tries - 1:
+                time.sleep(0.75)
+    return None
+
+
+def _announce_busy(port, url, open_window):
+    """The port is taken: say so, and give the running copy a chance to show its window."""
+    print(f"Port {port} is busy - DataGuard is probably already running: {url}")
+    if open_window and not _ask_open(port):
+        webbrowser.open(url)  # the running copy could not show a window
+
+
+def _nic_bytes_fn(mon):
+    """Build the tracker's nic callback: bytes the counted NIC moved since this tracker's
+    previous tick (Overview = ground truth). Differencing the cumulative counter keeps both
+    sides on the tracker's own window; a reset/jump (total went backwards) reports None so
+    apps record raw."""
+    nic_prev = [None]
+
+    def nic_bytes():
+        tot = mon.nic_total()
+        prev, nic_prev[0] = nic_prev[0], tot
+        if tot is None or prev is None or tot < prev:
+            return None
+        return tot - prev
+
+    return nic_bytes
+
+
+def _totals_today_fn(mon):
+    """Build the tracker's totals callback: the meter's per-day byte totals for this cycle -
+    ground truth for the Apps' reconciliation."""
+    def totals_today():
+        from .settings import cycle_bounds
+        start, _ = cycle_bounds(date.today(), mon.store.cfg["reset_day"])
+        with mon.store.lock:
+            days = {k: sum(v) for k, v in mon.store.days.items() if k >= start.isoformat()}
+        return {"start": start.isoformat(), "days": days}
+
+    return totals_today
+
+
+def _heartbeat_loop(mon, tracker):
+    """A one-line state summary every 5 minutes: the log should answer 'is it alive
+    and what is it seeing' without a debugger."""
+    while True:
+        time.sleep(300)
+        try:
+            s = mon.store.summary()
+            logging.info("heartbeat: used=%.2f GB today=%.2f MB counting=%s iface=%s "
+                         "ssid=%s blocked=%d tracker_err=%r mon_err=%r",
+                         s["used"] / mon.store.gb, s["today"] / mon.store.mb,
+                         mon.counting, mon.iface, mon.ssid,
+                         len(tracker.blocked),
+                         tracker.err, mon.err)
+        except Exception as e:
+            logging.warning("heartbeat: %s", e)
+
+
+def _seal_firewall():  # installed app only: keep DataGuard itself off the internet (loopback kept)
+    from . import firewall
+    ok, why = firewall.seal_app(_seal_targets())
+    if not ok and why:
+        logging.warning("firewall: DataGuard is not sealed off the internet: %s", why)
 
 
 def cmd_run(args, home):
@@ -142,79 +233,25 @@ def cmd_run(args, home):
                  store.cfg.get("plan_gb"))
     mon = Monitor(store)
     Handler.mon = mon
-    tries = 8 if os.environ.get("DG_RESTART") else 1  # a copy that is still shutting down may hold the port a beat
-    server = None
-    for attempt in range(tries):
-        try:
-            server = Server(("127.0.0.1", port), Handler)
-            break
-        except OSError:
-            if attempt == tries - 1:
-                print(f"Port {port} is busy - DataGuard is probably already running: {url}")
-                if args.open and not _ask_open(port):
-                    webbrowser.open(url)  # the running copy could not show a window
-                return 0
-            time.sleep(0.75)
+    server = _bind_server(port)
+    if server is None:
+        _announce_busy(port, url, args.open)
+        return
     # allowed: the meter's network flag - None until known, True only on the configured Wi-Fi
     tracker = AppTracker(AppStore(home), allowed=lambda: mon.counting)
     Handler.tracker = tracker
-
-    nic_prev = [None]
-
-    def nic_bytes():
-        """Bytes the counted NIC moved since this tracker's previous tick (Overview = ground
-        truth). Differencing the cumulative counter keeps both sides on the tracker's own
-        window; a reset/jump (total went backwards) reports None so apps record raw."""
-        tot = mon.nic_total()
-        prev, nic_prev[0] = nic_prev[0], tot
-        if tot is None or prev is None or tot < prev:
-            return None
-        return tot - prev
-
-    tracker.nic_fn = nic_bytes
-
-    def totals_today():
-        """The meter's per-day byte totals for this cycle - ground truth for the Apps' reconciliation."""
-        from .settings import cycle_bounds
-        start, _ = cycle_bounds(date.today(), mon.store.cfg["reset_day"])
-        with mon.store.lock:
-            days = {k: sum(v) for k, v in mon.store.days.items() if k >= start.isoformat()}
-        return {"start": start.isoformat(), "days": days}
-
-    tracker.totals_fn = totals_today
+    tracker.nic_fn = _nic_bytes_fn(mon)
+    tracker.totals_fn = _totals_today_fn(mon)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     tracker.start()
     mon_t = threading.Thread(target=mon.run, daemon=True)
     mon_t.start()
     logging.info("cli: web server, app tracker (interval %ds) and monitor threads started",
                  tracker.INTERVAL)
-
-    def heartbeat():
-        """A one-line state summary every 5 minutes: the log should answer 'is it alive
-        and what is it seeing' without a debugger."""
-        while True:
-            time.sleep(300)
-            try:
-                s = mon.store.summary()
-                logging.info("heartbeat: used=%.2f GB today=%.2f MB counting=%s iface=%s "
-                             "ssid=%s blocked=%d tracker_err=%r mon_err=%r",
-                             s["used"] / mon.store.gb, s["today"] / mon.store.mb,
-                             mon.counting, mon.iface, mon.ssid,
-                             len(tracker.blocked),
-                             tracker.err, mon.err)
-            except Exception as e:
-                logging.warning("heartbeat: %s", e)
-
-    threading.Thread(target=heartbeat, daemon=True, name="dataguard-heartbeat").start()
-
-    def seal():  # installed app only: keep DataGuard itself off the internet (loopback kept)
-        from . import firewall
-        ok, why = firewall.seal_app(_seal_targets())
-        if not ok and why:
-            logging.warning("firewall: DataGuard is not sealed off the internet: %s", why)
-
+    threading.Thread(target=_heartbeat_loop, args=(mon, tracker), daemon=True,
+                     name="dataguard-heartbeat").start()
     if _seal_targets():
-        threading.Thread(target=seal, daemon=True, name="dataguard-seal").start()
+        threading.Thread(target=_seal_firewall, daemon=True, name="dataguard-seal").start()
     try:
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     except (ValueError, OSError):
@@ -233,7 +270,6 @@ def cmd_run(args, home):
         tracker.stop()
         store.flush(force=True)
         logging.info("cli: stopped cleanly")
-    return 0
 
 
 def cmd_status(store):
@@ -257,7 +293,12 @@ def cmd_ifaces(store):
         chosen = auto_iface(list(counters), stats, counters)
     for name, c in sorted(counters.items()):
         up = "up" if name in stats and stats[name].isup else "down"
-        kind = "wifi" if WIFI.search(name) else ("virtual" if VIRTUAL.search(name) else "")
+        if WIFI.search(name):
+            kind = "wifi"
+        elif VIRTUAL.search(name):
+            kind = "virtual"
+        else:
+            kind = ""
         print(f"{'*' if name == chosen else ' '} {name:<30} {up:<5} {kind:<8} "
               f"down {c.bytes_recv / 1e9:8.2f} GB   up {c.bytes_sent / 1e9:8.2f} GB")
     print("\n* = the interface DataGuard is counting. Change it in the dashboard settings.")
@@ -283,7 +324,7 @@ def cmd_startup(action):
             print("DataGuard is not in startup.")
         return
     exe = Path(sys.executable)
-    exe = exe.with_name("pythonw.exe") if exe.with_name("pythonw.exe").exists() else exe
+    exe = exe.with_name(PYTHONW) if exe.with_name(PYTHONW).exists() else exe
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
         winreg.SetValueEx(key, RUN_NAME, 0, winreg.REG_SZ, f'"{exe}" "{ENTRY_SCRIPT}" run')
     print("DataGuard will start hidden at every login.")
@@ -308,7 +349,8 @@ def main(argv=None):
     cmd = args.cmd or "run"
     if cmd == "run":
         args.open, args.port = getattr(args, "open", False), getattr(args, "port", None)
-        return cmd_run(args, home)
+        cmd_run(args, home)
+        return 0
     if cmd == "startup":
         return cmd_startup(args.action)
     store = Store(home)

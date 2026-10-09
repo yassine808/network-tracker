@@ -3,6 +3,7 @@ all in one small SQLite database. Thread-safe (one guarded connection)."""
 
 import json
 import logging
+import os
 import sqlite3
 import threading
 from datetime import date, datetime, timedelta
@@ -18,6 +19,28 @@ CREATE TABLE IF NOT EXISTS fired (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS alerts (seq INTEGER PRIMARY KEY AUTOINCREMENT, t TEXT NOT NULL,
                                    kind TEXT NOT NULL, title TEXT NOT NULL, msg TEXT NOT NULL);"""
 
+USAGE_FILE = "usage.json"
+
+
+def _safe_home(home):
+    """Canonical, fully resolved home directory; NUL/newline bytes break paths on disk."""
+    text = os.fspath(home)
+    if "\x00" in text or "\n" in text or "\r" in text:
+        raise ValueError(f"invalid home path: {text!r}")
+    return Path(text).resolve()
+
+
+def _safe_path(base, path):
+    """Resolve *path* and refuse anything that lands outside *base* (path-injection guard)."""
+    text = os.fspath(path)
+    if "\x00" in text or "\n" in text or "\r" in text:
+        raise ValueError(f"invalid path: {text!r}")
+    root = Path(base).resolve()
+    resolved = Path(text).resolve()
+    if resolved != root and root not in resolved.parents:
+        raise ValueError(f"path escapes {root}: {text!r}")
+    return path
+
 
 class Store:
     """Settings + usage history in dataguard.db. Thread-safe."""
@@ -25,10 +48,11 @@ class Store:
     KEEP_DAYS = 400
 
     def __init__(self, home):
-        self.home = Path(home)
+        self.home = _safe_home(home)
         self.home.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
-        self.conn = sqlite3.connect(str(self.home / DB_NAME), check_same_thread=False)
+        self.conn = sqlite3.connect(str(_safe_path(self.home, self.home / DB_NAME)),
+                                    check_same_thread=False)
         self.cfg = dict(DEFAULTS)
         self.days = {}     # "YYYY-MM-DD" -> [bytes received, bytes sent] counted against the plan
         self.cal = {}      # {"cycle": "YYYY-MM-DD", "offset": bytes}, set by calibrate
@@ -42,8 +66,8 @@ class Store:
         self._migrate()
         self._load()
 
-    @staticmethod
-    def _read_json(path):
+    def _read_json(self, path):
+        path = _safe_path(self.home, path)  # only files inside the home directory are read
         try:
             return json.loads(path.read_text("utf-8"))
         except FileNotFoundError:
@@ -78,74 +102,60 @@ class Store:
     def _migrate(self):
         """One-time import of the old config.json + usage.json (the files are renamed afterwards)."""
         with self.lock, self.conn:
-            if not self.conn.execute("SELECT 1 FROM settings LIMIT 1").fetchone():
-                raw = self._read_json(self.home / "config.json")
-                if isinstance(raw, dict):
-                    try:
-                        cfg = clean_cfg(raw, DEFAULTS)
-                    except ValueError as e:
-                        logging.warning("config.json ignored (%s); using defaults", e)
-                        cfg = dict(DEFAULTS)
-                    self._put_settings(cfg)
-                    self._park(self.home / "config.json")
-            if not self.conn.execute("SELECT 1 FROM days LIMIT 1").fetchone():
-                use = self._read_json(self.home / "usage.json")
-                if isinstance(use, dict):
-                    try:
-                        days = {k: [int(v[0]), int(v[1])] for k, v in (use.get("days") or {}).items()}
-                        cal = dict(use.get("cal") or {})
-                        fired = dict(use.get("fired") or {})
-                        log = [a for a in (use.get("log") or []) if isinstance(a, dict)]
-                        if not isinstance(cal.get("cycle"), str):
-                            cal = {}
-                        if cal:
-                            cal = {"cycle": cal["cycle"], "offset": int(cal.get("offset", 0))}
-                    except (TypeError, ValueError, IndexError, AttributeError):
-                        self._quarantine(self.home / "usage.json")  # malformed: keep the file, start fresh
-                        days, cal, fired, log = {}, {}, {}, []
-                    self.conn.executemany("INSERT OR REPLACE INTO days VALUES (?, ?, ?)",
-                                          [(k, v[0], v[1]) for k, v in days.items()])
-                    if cal:
-                        self.conn.execute("INSERT OR REPLACE INTO cal VALUES (?, ?)",
-                                          (cal["cycle"], cal["offset"]))
-                    self.conn.executemany("INSERT OR REPLACE INTO fired VALUES (?, ?)",
-                                          [(k, json.dumps(v)) for k, v in fired.items()])
-                    self.conn.executemany("INSERT INTO alerts (t, kind, title, msg) VALUES (?, ?, ?, ?)",
-                                          [(str(a.get("t", "")), str(a.get("kind", "info")),
-                                            str(a.get("title", "")), str(a.get("msg", ""))) for a in log])
-                    self._park(self.home / "usage.json")
+            self._migrate_config()
+            self._migrate_usage()
+
+    def _migrate_config(self):
+        if self.conn.execute("SELECT 1 FROM settings LIMIT 1").fetchone():
+            return  # already has rows: import only into a fresh db
+        raw = self._read_json(self.home / "config.json")
+        if not isinstance(raw, dict):
+            return
+        try:
+            cfg = clean_cfg(raw, DEFAULTS)
+        except ValueError as e:
+            logging.warning("config.json ignored (%s); using defaults", e)
+            cfg = dict(DEFAULTS)
+        self._put_settings(cfg)
+        self._park(self.home / "config.json")
+
+    def _migrate_usage(self):
+        if self.conn.execute("SELECT 1 FROM days LIMIT 1").fetchone():
+            return  # already has rows: import only into a fresh db
+        use = self._read_json(self.home / USAGE_FILE)
+        if not isinstance(use, dict):
+            return
+        days, cal, fired, log = self._parse_legacy(use)
+        self.conn.executemany("INSERT OR REPLACE INTO days VALUES (?, ?, ?)",
+                              [(k, v[0], v[1]) for k, v in days.items()])
+        if cal:
+            self.conn.execute("INSERT OR REPLACE INTO cal VALUES (?, ?)",
+                              (cal["cycle"], cal["offset"]))
+        self.conn.executemany("INSERT OR REPLACE INTO fired VALUES (?, ?)",
+                              [(k, json.dumps(v)) for k, v in fired.items()])
+        self.conn.executemany("INSERT INTO alerts (t, kind, title, msg) VALUES (?, ?, ?, ?)",
+                              [(str(a.get("t", "")), str(a.get("kind", "info")),
+                                str(a.get("title", "")), str(a.get("msg", ""))) for a in log])
+        self._park(self.home / USAGE_FILE)
+
+    def _parse_legacy(self, use):
+        try:
+            days = {k: [int(v[0]), int(v[1])] for k, v in (use.get("days") or {}).items()}
+            cal = dict(use.get("cal") or {})
+            fired = dict(use.get("fired") or {})
+            log = [a for a in (use.get("log") or []) if isinstance(a, dict)]
+            if not isinstance(cal.get("cycle"), str):
+                cal = {}
+            if cal:
+                cal = {"cycle": cal["cycle"], "offset": int(cal.get("offset", 0))}
+        except (TypeError, ValueError, IndexError, AttributeError):
+            self._quarantine(self.home / USAGE_FILE)  # malformed: keep the file, start fresh
+            return {}, {}, {}, []
+        return days, cal, fired, log
 
     def _load(self):
         with self.lock:
-            rows = self.conn.execute("SELECT key, value FROM settings").fetchall()
-            if rows:
-                raw, repaired = {}, False
-                for k, v in rows:
-                    try:
-                        raw[k] = json.loads(v)
-                    except ValueError:
-                        repaired = True  # unreadable row: the default takes over for that key only
-                try:
-                    self.cfg = clean_cfg(raw, DEFAULTS)
-                except ValueError:
-                    # one invalid value must not reset the rest: keep every key that still validates
-                    good = {}
-                    for k, v in raw.items():
-                        try:
-                            clean_cfg({k: v}, DEFAULTS)
-                        except ValueError as e:
-                            logging.warning("stored setting %s ignored (%s); using default", k, e)
-                            repaired = True
-                        else:
-                            good[k] = v
-                    self.cfg = clean_cfg(good, DEFAULTS)
-                if repaired:
-                    with self.conn:
-                        self._put_settings(self.cfg)
-            else:
-                self.cfg = dict(DEFAULTS)
-                with self.conn:  # fresh install: persist the defaults so they are inspectable
-                    self._put_settings(self.cfg)
+            self._load_settings()
             self.days = {d: [rx, tx] for d, rx, tx in self.conn.execute("SELECT day, rx, tx FROM days")}
             row = self.conn.execute("SELECT cycle, offset FROM cal LIMIT 1").fetchone()
             self.cal = {"cycle": row[0], "offset": row[1]} if row else {}
@@ -157,6 +167,42 @@ class Store:
             self.log = [{"t": t, "kind": k, "title": ti, "msg": m} for t, k, ti, m in self.conn.execute(
                 "SELECT t, kind, title, msg FROM alerts ORDER BY seq DESC LIMIT 40")]
             self.log.reverse()
+
+    def _load_settings(self):
+        rows = self.conn.execute("SELECT key, value FROM settings").fetchall()
+        if not rows:
+            self.cfg = dict(DEFAULTS)
+            with self.conn:  # fresh install: persist the defaults so they are inspectable
+                self._put_settings(self.cfg)
+            return
+        raw, repaired = {}, False
+        for k, v in rows:
+            try:
+                raw[k] = json.loads(v)
+            except ValueError:
+                repaired = True  # unreadable row: the default takes over for that key only
+        try:
+            self.cfg = clean_cfg(raw, DEFAULTS)
+        except ValueError:
+            good, dropped = self._valid_settings(raw)
+            repaired = repaired or dropped
+            self.cfg = clean_cfg(good, DEFAULTS)
+        if repaired:
+            with self.conn:
+                self._put_settings(self.cfg)
+
+    def _valid_settings(self, raw):
+        # one invalid value must not reset the rest: keep every key that still validates
+        good, dropped = {}, False
+        for k, v in raw.items():
+            try:
+                clean_cfg({k: v}, DEFAULTS)
+            except ValueError as e:
+                logging.warning("stored setting %s ignored (%s); using default", k, e)
+                dropped = True
+            else:
+                good[k] = v
+        return good, dropped
 
     def flush(self, force=False):
         with self.lock:

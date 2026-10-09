@@ -35,6 +35,11 @@ def _guess_path(name):
         cand = os.path.join(d, name)
         if d and os.path.isfile(cand):
             return cand
+    return _registry_app_path(name)
+
+
+def _registry_app_path(name):
+    """Path from the App Paths registry for `name`, "" when the key (or winreg) is missing."""
     try:
         import winreg
         for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
@@ -58,8 +63,8 @@ LAUNCHER_DIRS = ("Riot Games", "HoYoPlay", "HoYoverse", "Epic Games", "Origin Ga
 MAX_DEPTH = 6  # VALORANT's shipping exe sits 5 folders under C:\Riot Games
 
 
-def _steam_libraries():
-    """Steam's own folder plus every library it records - games usually live on another drive."""
+def _steam_roots():
+    """Steam folders recorded in the registry (SteamPath, both hives); [] when unreadable."""
     roots = []
     try:
         import winreg
@@ -73,7 +78,12 @@ def _steam_libraries():
                 if v and v not in roots:
                     roots.append(v)
     except (OSError, ImportError):
-        return roots
+        pass
+    return roots
+
+
+def _steam_vdf_libraries(roots):
+    """Every library folder the roots' libraryfolders.vdf records (games often on another drive)."""
     libs = [r for r in roots if os.path.isdir(r)]
     for vdf in [os.path.join(r, "steamapps", "libraryfolders.vdf") for r in roots]:
         try:
@@ -84,6 +94,12 @@ def _steam_libraries():
             p = raw.replace("\\\\", "\\")
             if p not in libs:
                 libs.append(p)
+    return libs
+
+
+def _steam_libraries():
+    """Steam's own folder plus every library it records - games usually live on another drive."""
+    libs = _steam_vdf_libraries(_steam_roots())
     return [os.path.normpath(os.path.join(p, "steamapps", "common")) for p in libs
             if os.path.isdir(os.path.join(p, "steamapps"))]
 
@@ -124,11 +140,38 @@ def _library_roots():
     return [r for r in dict.fromkeys(roots) if os.path.isdir(r)]
 
 
+def _exe_index():
+    """{lowercase exe name: path} for every .exe under the launcher folders and Program Files."""
+    idx = {}
+    for root in _library_roots():
+        for dirpath, dirnames, filenames in os.walk(root):
+            if dirpath.count(os.sep) - root.count(os.sep) >= MAX_DEPTH:
+                dirnames[:] = []
+            for f in filenames:
+                if f.lower().endswith(".exe"):
+                    idx.setdefault(f.lower(), os.path.join(dirpath, f))
+    return idx
+
+
+def _shortcut_index():
+    """{program stem: shortcut path} for every Start Menu and desktop shortcut."""
+    lnk = {}
+    for root in _shortcut_roots():
+        for dirpath, _, files in os.walk(root):
+            for f in files:
+                if f.lower().endswith(".lnk"):
+                    lnk.setdefault(_stem_key(f), os.path.join(dirpath, f))
+    return lnk
+
+
 
 SUITE = re.compile(r"[\\/](avast software|alwil software|avg)[\\/]", re.I)  # security suites: one product, many .exe
 
 # Folders where a block must stay local: their exes belong to Windows itself, never to one app
 SYSTEM_DIRS = ("program files", "program files (x86)", "windows", "system32", "syswow64")
+
+# One rejected program per warning line, wherever a block or a sync reports a failure
+MEMBER_ERR_FMT = "firewall: %s: %s"
 
 
 def _service_path(name):
@@ -174,6 +217,16 @@ def _block_group(exe):
             return []  # the exe sits directly in a shared root: block it alone
         roots = [folder]
         depth, cap = 3, 40
+    out = _scan_group(roots, depth)
+    if len(out) > cap:
+        logging.warning("firewall: block group scan found %d programs, covering only the first %d",
+                        len(out), cap)
+        out = out[:cap]
+    return out
+
+
+def _scan_group(roots, depth):
+    """[(name, path)] of this group's .exe files under `roots`, the walk bounded to `depth`."""
     seen_paths, named, out = set(), {}, []
     for root in roots:
         if not os.path.isdir(root):
@@ -183,51 +236,68 @@ def _block_group(exe):
                 if dp.count(os.sep) - root.count(os.sep) >= depth:
                     dn[:] = []
                 for f in fn:
-                    if not f.lower().endswith(".exe") or "unins" in f.lower():
-                        continue
-                    p = os.path.normcase(os.path.join(dp, f))
-                    if p in seen_paths:
-                        continue
-                    seen_paths.add(p)
-                    n = f
-                    if n.lower() in named:  # same file name in two folders: keep both, name apart
-                        n = "%s (%s)" % (f, hashlib.md5(p.encode(), usedforsecurity=False).hexdigest()[:6])
-                    named[n.lower()] = p
-                    out.append((n, p))
+                    _collect_exes(f, dp, seen_paths, named, out)
         except OSError:
             pass
-    if len(out) > cap:
-        logging.warning("firewall: block group scan found %d programs, covering only the first %d",
-                        len(out), cap)
-        out = out[:cap]
     return out
 
 
+def _collect_exes(f, dirpath, seen_paths, named, out):
+    """One walked file into the group: .exe only, never an uninstaller, keyed by full path so a
+    same-named copy elsewhere stays a separate member (its name gets suffixed on collision)."""
+    if not f.lower().endswith(".exe") or "unins" in f.lower():
+        return
+    p = os.path.normcase(os.path.join(dirpath, f))
+    if p in seen_paths:
+        return
+    seen_paths.add(p)
+    n = f
+    if n.lower() in named:  # same file name in two folders: keep both, name apart
+        n = "%s (%s)" % (f, hashlib.md5(p.encode(), usedforsecurity=False).hexdigest()[:6])
+    named[n.lower()] = p
+    out.append((n, p))
+
+
+def _leak_row(c):
+    """(label, endpoint) for a suite/System connection still open, else None. Matching is
+    broad on purpose: AVG and Alwil-branded trees share Avast's binaries."""
+    if not c.pid or not c.raddr:
+        return None
+    # UDP has no status (never "ESTABLISHED"), so only filter TCP; a suite
+    # talking DNS/NTP over UDP would otherwise be invisible to this check
+    if c.type == socket.SOCK_STREAM and c.status != "ESTABLISHED":
+        return None
+    if c.raddr.ip.startswith("127.") or c.raddr.ip == "::1":
+        return None
+    try:
+        p = psutil.Process(c.pid)
+        n, ex = p.name(), p.exe()
+    except psutil.Error:
+        n, ex = "pid %d" % c.pid, ""
+    low_n, low_e = n.lower(), (ex or "").lower()
+    if (c.pid == 4 or "avast" in low_e or "avg" in low_e or "alwil" in low_e
+            or low_n.startswith(("avast", "asw", "afw", "avg"))):
+        return "%s [%s]" % (n, ex or "?"), "%s:%s" % (c.raddr.ip, c.raddr.port)
+    return None
+
+
+def _leaked_connections():
+    """{label: [endpoints]} for every suite/System program still holding a real connection."""
+    rows = {}
+    for c in psutil.net_connections(kind="inet"):
+        row = _leak_row(c)
+        if row is None:
+            continue
+        rows.setdefault(row[0], []).append(row[1])
+    return rows
+
+
 def _leak_check(delay=25):
-    """Log, a bit after a block, which suite/System programs still hold connections.
-    Matching is broad on purpose: AVG and Alwil-branded trees share Avast's binaries."""
+    """Log, a bit after a block, which suite/System programs still hold connections."""
     def run():
         time.sleep(delay)
         try:
-            rows = {}
-            for c in psutil.net_connections(kind="inet"):
-                if not c.pid or not c.raddr:
-                    continue
-                # UDP has no status (never "ESTABLISHED"), so only filter TCP; a suite
-                # talking DNS/NTP over UDP would otherwise be invisible to this check
-                if c.type == socket.SOCK_STREAM and c.status != "ESTABLISHED":
-                    continue
-                if c.raddr.ip.startswith("127.") or c.raddr.ip == "::1":
-                    continue
-                try:
-                    p = psutil.Process(c.pid)
-                    n, ex = p.name(), p.exe()
-                except psutil.Error:
-                    n, ex = "pid %d" % c.pid, ""
-                low_n, low_e = n.lower(), (ex or "").lower()
-                if (c.pid == 4 or "avast" in low_e or "avg" in low_e or "alwil" in low_e
-                        or low_n.startswith(("avast", "asw", "afw", "avg"))):
-                    rows.setdefault("%s [%s]" % (n, ex or "?"), []).append("%s:%s" % (c.raddr.ip, c.raddr.port))
+            rows = _leaked_connections()
             logging.info("firewall: %ds after the block, open suite/System connections: %s", delay,
                          {k: v[:4] for k, v in rows.items()} or "none")
         except Exception as e:
@@ -283,10 +353,16 @@ class AppStore:
     """Daily per-app byte totals in one SQLite file. Thread-safe (one guarded connection)."""
 
     def __init__(self, home):
-        folder = Path(home)
+        text = os.fspath(home)  # --home comes from argv: NUL/newline smuggle a path past mkdir/open
+        if "\x00" in text or "\n" in text or "\r" in text:
+            raise ValueError(f"invalid home path: {text!r}")
+        folder = Path(text)
         folder.mkdir(parents=True, exist_ok=True)
         self.path = folder / DB_NAME
         self.lock = threading.RLock()
+        root, resolved = folder.resolve(), self.path.resolve()  # a db resolving outside home must not open
+        if resolved != root and root not in resolved.parents:
+            raise ValueError(f"path escapes {root}: {DB_NAME}")
         self.conn = sqlite3.connect(str(self.path), check_same_thread=False)
         with self.lock:
             self.conn.execute(
@@ -490,26 +566,13 @@ class AppTracker(threading.Thread):
         """Map every .exe under the launcher folders to its path, and every shortcut to the
         program it points at, once."""
         try:
-            idx = {}
-            for root in _library_roots():
-                for dirpath, dirnames, filenames in os.walk(root):
-                    if dirpath.count(os.sep) - root.count(os.sep) >= MAX_DEPTH:
-                        dirnames[:] = []
-                    for f in filenames:
-                        if f.lower().endswith(".exe"):
-                            idx.setdefault(f.lower(), os.path.join(dirpath, f))
+            idx = _exe_index()
             self._index = idx
             logging.info("apps: indexed %d program files from the launcher folders", len(idx))
         except Exception as e:  # an odd folder must not stop tracking
             logging.warning("apps: could not index the launcher folders: %s", e)
         try:
-            lnk = {}
-            for root in _shortcut_roots():
-                for dirpath, _, files in os.walk(root):
-                    for f in files:
-                        if f.lower().endswith(".lnk"):
-                            lnk.setdefault(_stem_key(f), os.path.join(dirpath, f))
-            self._lnk = lnk
+            self._lnk = _shortcut_index()
         except Exception as e:
             logging.warning("apps: could not index the shortcuts: %s", e)
         finally:
@@ -553,55 +616,70 @@ class AppTracker(threading.Thread):
         Windows has accepted the change - a rejected block is never remembered."""
         if not self.supported:
             return False, "per-app blocking runs on Windows only"
-        from . import firewall
         members = self.group(name)
         with self._block_lock:
             if on:
-                exe = dict(members).get(name)
-                ok, err = firewall.can_block(name, exe)
+                ok, err = self._apply_block(name, members)
                 if not ok:
                     return False, err
-                if self.allowed():
-                    if len(members) == 1:
-                        ok, err = firewall.block_app(name, exe)
-                        if not ok:
-                            return False, err
-                    else:  # a suite: all its programs in ONE change (one Windows prompt)
-                        items = [(n, p, True) for n, p in members if p]
-                        res = {n: (ok, msg) for n, ok, msg in firewall.sync_app_blocks(items)}
-                        for n, (ok, msg) in res.items():
-                            if not ok:
-                                logging.warning("firewall: %s: %s", n, msg)
-                        _leak_check()
-                        if not res.get(name, (False, ""))[0]:
-                            return False, res.get(name, (False, "could not block"))[1] or "could not block"
-            else:
-                if len(members) == 1:
-                    if firewall.has_block(name):
-                        ok, err = firewall.unblock_app(name)
-                        if not ok:
-                            return False, err
-                else:  # one change here too: member-by-member lets the periodic resync
-                    # re-add a suite member the loop already removed (stray blocks)
-                    items = [(n, p, False) for n, p in members]
-                    res = {n: (ok, msg) for n, ok, msg in firewall.sync_app_blocks(items)}
-                    for n, (ok, msg) in res.items():
-                        if not ok:
-                            logging.warning("firewall: %s: %s", n, msg)
-                    if not res.get(name, (False, ""))[0]:
-                        return False, res.get(name, (False, "could not unblock"))[1] or "could not unblock"
-            if on:
                 self.blocked.add(name)
             else:
+                ok, err = self._remove_block(name, members)
+                if not ok:
+                    return False, err
                 self.blocked.discard(name)
-            try:
-                tmp = self.blocked_file.with_suffix(".tmp")
-                tmp.write_text(json.dumps(sorted(self.blocked)), encoding="utf-8")
-                tmp.replace(self.blocked_file)
-            except OSError as e:
-                logging.warning("apps: could not save the blocked list: %s", e)
+            self._save_blocked()
         logging.info("apps: %s %s", name, "blocked" if on else "unblocked")
         return True, ""
+
+    def _apply_block(self, name, members):
+        """(ok, message): put the Windows rule(s) in place while the gate is open; success with
+        an empty message when the gate is closed (the choice is recorded, sync_blocks applies
+        it with the Wi-Fi)."""
+        from . import firewall
+        exe = dict(members).get(name)
+        ok, err = firewall.can_block(name, exe)
+        if not ok:
+            return False, err
+        if not self.allowed():
+            return True, ""
+        if len(members) == 1:
+            return firewall.block_app(name, exe)
+        # a suite: all its programs in ONE change (one Windows prompt)
+        items = [(n, p, True) for n, p in members if p]
+        res = {n: (ok, msg) for n, ok, msg in firewall.sync_app_blocks(items)}
+        for n, (ok, msg) in res.items():
+            if not ok:
+                logging.warning(MEMBER_ERR_FMT, n, msg)
+        _leak_check()
+        if not res.get(name, (False, ""))[0]:
+            return False, res.get(name, (False, "could not block"))[1] or "could not block"
+        return True, ""
+
+    def _remove_block(self, name, members):
+        """(ok, message): take the Windows rule(s) down; every member at once, so the
+        periodic resync never re-adds a suite member the loop already removed."""
+        from . import firewall
+        if len(members) == 1:
+            if firewall.has_block(name):
+                return firewall.unblock_app(name)
+            return True, ""
+        items = [(n, p, False) for n, p in members]
+        res = {n: (ok, msg) for n, ok, msg in firewall.sync_app_blocks(items)}
+        for n, (ok, msg) in res.items():
+            if not ok:
+                logging.warning(MEMBER_ERR_FMT, n, msg)
+        if not res.get(name, (False, ""))[0]:
+            return False, res.get(name, (False, "could not unblock"))[1] or "could not unblock"
+        return True, ""
+
+    def _save_blocked(self):
+        try:
+            tmp = self.blocked_file.with_suffix(".tmp")
+            tmp.write_text(json.dumps(sorted(self.blocked)), encoding="utf-8")
+            tmp.replace(self.blocked_file)
+        except OSError as e:
+            logging.warning("apps: could not save the blocked list: %s", e)
 
     def sync_blocks(self):
         """Bring Windows in line with the remembered blocks and the current network gate:
@@ -627,7 +705,7 @@ class AppTracker(threading.Thread):
             for name, ok, err in firewall.sync_app_blocks(list(items.values())):
                 if not ok:
                     failed += 1
-                    logging.warning("firewall: %s: %s", name, err)
+                    logging.warning(MEMBER_ERR_FMT, name, err)
             if failed:
                 logging.warning("firewall: %d of %d program(s) could not be %s", failed, len(items),
                                 "blocked" if gate else "unblocked")
@@ -635,6 +713,11 @@ class AppTracker(threading.Thread):
                 _leak_check()
         finally:
             self._block_lock.release()
+
+    def _log_gate(self, gate):
+        logging.info("firewall: network gate %s - remembered blocks %s",
+                     "opened" if gate else "closed",
+                     "are in place" if gate else "are removed until the Wi-Fi returns")
 
     def run(self):
         if not self.supported:
@@ -649,9 +732,7 @@ class AppTracker(threading.Thread):
                 if now is not None and now != gate:
                     gate = now
                     self.sync_blocks()
-                    logging.info("firewall: network gate %s - remembered blocks %s",
-                                 "opened" if gate else "closed",
-                                 "are in place" if gate else "are removed until the Wi-Fi returns")
+                    self._log_gate(gate)
                 # Avast updates itself while blocked and drops new binaries: re-scan and
                 # re-apply the suite blocks every few minutes (read-only when nothing changed)
                 if gate and self.blocked and time.monotonic() - last_resync > 300:
@@ -664,8 +745,10 @@ class AppTracker(threading.Thread):
             self.stop_event.wait(self.INTERVAL if gate is not None else 1.0)
         self.store.flush(force=True)
 
-    def tick(self):
-        record = self.allowed()  # off the configured network: track state, but record nothing
+    def _collect(self):
+        """(day, cur, blind, pids, remote, loop, loopback_skipped): pass 1's whole population -
+        read every process's raw counter into cur{}, naming/blinding as we go, but record
+        nothing yet (the scale factor needs the whole population first)."""
         try:
             pids = {c.pid for c in psutil.net_connections(kind="inet") if c.pid}
         except (psutil.AccessDenied, OSError):
@@ -674,9 +757,15 @@ class AppTracker(threading.Thread):
         cur, blind = {}, {}
         remote = _remote_pids()   # who holds a real internet socket, for the suite-driver filter
         loop = loopback_pids()    # who holds nothing but loopback: camera/mic chatter, not internet
+        loopback_skipped = self._walk_processes(cur, blind, pids, remote, loop)
+        if blind:
+            raw = _wmi_other()
+            for pid, name in blind.items():
+                cur[pid] = (name, raw.get(pid, 0))  # unreadable counter: hold at 0 so the app still lists
+        return day, cur, blind, pids, remote, loop, loopback_skipped
 
-        # Pass 1 - read every process's raw counter into cur{}, naming/blinding as we go, but
-        # record nothing yet (the scale factor needs the whole population first).
+    def _walk_processes(self, cur, blind, pids, remote, loop):
+        """loopback_skipped count; fills cur/blind with every process's raw counter."""
         loopback_skipped = 0
         for p in psutil.process_iter(["name", "exe"]):
             name = p.info.get("name") or f"pid {p.pid}"
@@ -695,33 +784,39 @@ class AppTracker(threading.Thread):
                     logging.debug("tick: pid %s (%s) blind (AccessDenied/WMI)", p.pid, name)
                 continue
             cur[p.pid] = (name, v)  # baseline for EVERY process, so a new app counts from its first socket
-        if blind:
-            raw = _wmi_other()
-            for pid, name in blind.items():
-                cur[pid] = (name, raw.get(pid, 0))  # unreadable counter: hold at 0 so the app still lists
+        return loopback_skipped
 
-        # Pass 2 - a process's raw 'other' bytes include device/driver I/O (NVIDIA Broadcast's
-        # camera work) and loopback, which the NIC never sees, so the raw deltas sum larger than
-        # the Overview's counter. Scale each app's share so the recorded total tracks the bytes
-        # the counted NIC actually moved: Apps then adds up to the Overview instead of over-counting
-        # it. scale is capped at 1.0 so a sample-boundary mismatch never inflates or shrinks real
-        # bytes downward; when the NIC moved more than the apps reported (blind app), we record raw.
-        gained = 0
+    def _delta_for(self, pid, name, v, pids, record):
+        """('off'|'blocked'|'keep', delta): off - no connection this tick; blocked - firewalled
+        so its bytes never reach the counted NIC; keep - the raw delta to scale (>= 0)."""
+        if pids is not None and pid not in pids:
+            return "off", 0
+        if record and name in self.blocked:
+            return "blocked", 0
+        prev = self.base.get(pid)
+        d = v - prev[1] if prev is not None and prev[0] == name and v >= prev[1] else 0
+        if d < 0:
+            d = 0  # a counter reset must never subtract from the app's total
+        return "keep", d
+
+    def _scale_deltas(self, cur, pids, record):
+        """(deltas, scale, skipped, blocked_skipped, raw_delta, nic_tot) - a process's raw
+        'other' bytes include device/driver I/O (NVIDIA Broadcast's camera work) and loopback,
+        which the NIC never sees, so the raw deltas sum larger than the Overview's counter.
+        Scale each app's share so the recorded total tracks the bytes the counted NIC actually
+        moved: Apps then adds up to the Overview instead of over-counting it. scale is capped
+        at 1.0 so a sample-boundary mismatch never inflates or shrinks real bytes downward;
+        when the NIC moved more than the apps reported (blind app), we record raw."""
         skipped = 0
         blocked_skipped = 0
         deltas = []
         for pid, (name, v) in cur.items():
-            if pids is not None and pid not in pids:
+            kind, d = self._delta_for(pid, name, v, pids, record)
+            if kind == "off":
                 skipped += 1
-                continue
-            if record and name in self.blocked:
+            elif kind == "blocked":
                 blocked_skipped += 1  # firewalled: its bytes never reach the counted NIC
-                continue
-            prev = self.base.get(pid)
-            d = v - prev[1] if prev is not None and prev[0] == name and v >= prev[1] else 0
-            if d < 0:
-                d = 0  # a counter reset must never subtract from the app's total
-            if d:
+            elif d:
                 deltas.append((name, d))
         # Deltas only - both sides must be bytes moved in THIS tick's window, or the scale
         # (NIC delta / absolute counter) collapses to ~0 and the apps stop counting at all.
@@ -729,6 +824,14 @@ class AppTracker(threading.Thread):
         nic_tot = self.nic_fn() if self.nic_fn else None
         scale = (nic_tot / raw_delta) if (record and raw_delta > 0 and nic_tot is not None) else 1.0
         scale = min(scale, 1.0)
+        return deltas, scale, skipped, blocked_skipped, raw_delta, nic_tot
+
+    def tick(self):
+        record = self.allowed()  # off the configured network: track state, but record nothing
+        day, cur, blind, pids, remote, loop, loopback_skipped = self._collect()
+        deltas, scale, skipped, blocked_skipped, raw_delta, nic_tot = self._scale_deltas(
+            cur, pids, record)
+        gained = 0
         if record:
             for name, d in deltas:
                 d = int(d * scale)
@@ -736,7 +839,7 @@ class AppTracker(threading.Thread):
                 gained += d
         self.base = cur
         self.diag = "v1.3.0 · %s processes with connections, %d read via WMI, %d loopback-only, %d blocked%s" % (
-            "?" if pids is None else len({q for q in pids}), len(blind),
+            "?" if pids is None else len(set(pids)), len(blind),
             len(loop - (remote or set())), blocked_skipped,
             "" if scale in (0.0, 1.0) else ", scaled %.0f%% to NIC" % (scale * 100))
         logging.debug(
@@ -776,33 +879,45 @@ class AppTracker(threading.Thread):
         for d in sorted(set(ov_days) | set(by_day)):
             if d < start:
                 continue
-            mine = sum(n for _, n in by_day.get(d, ()))
-            diff = int(ov_days.get(d, 0)) - mine
-            if abs(diff) < 256 * 1024:  # sub-quarter-MB jitter is window alignment, not a real gap
-                continue
-            rows = by_day.get(d) or []
-            total = sum(n for _, n in rows)
-            if not rows and d == day and deltas:  # nothing on record: share it by what just moved
-                rows, total = [(n, b) for n, b in deltas if b > 0], sum(b for _, b in deltas if b > 0)
-            if not rows or total <= 0:
-                continue
-            if diff > 0:
-                add = {a: int(diff * n / total) for a, n in rows}
-                top = max(rows, key=lambda kv: kv[1])[0]  # rounding remainder to the biggest share
-                add[top] += diff - sum(add.values())
-                for a, b in add.items():
-                    if b:
-                        self.store.add(d, a, b)
-            else:  # an old overcount: shrink proportionally, never below zero
-                real = 0
-                for a, n in rows:
-                    s = min(n, int(-diff * n / total))
-                    if s:
-                        self.store.add(d, a, -s)
-                        real += s
-                diff = -real
-            logging.info("reconcile: %s apps=%d vs Overview=%d -> %+d across %d app(s)",
-                         d, mine, int(ov_days.get(d, 0)), diff, len(rows))
+            self._reconcile_day(d, day, ov_days, by_day, deltas)
+
+    def _reconcile_day(self, d, day, ov_days, by_day, deltas):
+        """One cycle day's gap closed and logged; nothing to do when it is jitter or empty."""
+        mine = sum(n for _, n in by_day.get(d, ()))
+        diff = int(ov_days.get(d, 0)) - mine
+        if abs(diff) < 256 * 1024:  # sub-quarter-MB jitter is window alignment, not a real gap
+            return
+        rows = by_day.get(d) or []
+        total = sum(n for _, n in rows)
+        if not rows and d == day and deltas:  # nothing on record: share it by what just moved
+            rows, total = [(n, b) for n, b in deltas if b > 0], sum(b for _, b in deltas if b > 0)
+        if not rows or total <= 0:
+            return
+        if diff > 0:
+            self._distribute(d, rows, total, diff)
+        else:  # an old overcount: shrink proportionally, never below zero
+            diff = self._shrink(d, rows, total, diff)
+        logging.info("reconcile: %s apps=%d vs Overview=%d -> %+d across %d app(s)",
+                     d, mine, int(ov_days.get(d, 0)), diff, len(rows))
+
+    def _distribute(self, d, rows, total, diff):
+        """A day's missing bytes handed to its apps by share, remainder to the biggest one."""
+        add = {a: int(diff * n / total) for a, n in rows}
+        top = max(rows, key=lambda kv: kv[1])[0]  # rounding remainder to the biggest share
+        add[top] += diff - sum(add.values())
+        for a, b in add.items():
+            if b:
+                self.store.add(d, a, b)
+
+    def _shrink(self, d, rows, total, diff):
+        """A day's overcount taken back by share (never below zero); the real amount removed."""
+        real = 0
+        for a, n in rows:
+            s = min(n, int(-diff * n / total))
+            if s:
+                self.store.add(d, a, -s)
+                real += s
+        return -real
 
     def stop(self):
         self.stop_event.set()

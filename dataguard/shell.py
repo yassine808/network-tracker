@@ -137,24 +137,19 @@ def _focus():
         logging.debug("shell: could not focus window (%s)", e)
 
 
-def run(url, open_now=False):
-    """Tray icon + dashboard window; blocks until Exit. Without the extras: browser + console, as before."""
-    if not HAVE_SHELL:
-        if pystray is None or webview is None:
-            print("Tip: pip install pystray pillow pywebview  (tray icon + app window)", flush=True)
-        if open_now:
-            webbrowser.open(url)
-        try:
-            while True:
-                time.sleep(3600)
-        except (KeyboardInterrupt, SystemExit):
-            return
+def _fallback(url, open_now):
+    """No tray/window extras: browser + console, running until the process is asked to stop.
+    Ctrl+C and SIGTERM propagate to cmd_run, which logs and shuts the app down cleanly."""
+    if pystray is None or webview is None:
+        print("Tip: pip install pystray pillow pywebview  (tray icon + app window)", flush=True)
+    if open_now:
+        webbrowser.open(url)
+    while True:
+        time.sleep(3600)
 
-    im = _icon_image()
-    ico = _icon_file(im)
-    opened, quitting = threading.Event(), threading.Event()
-    holder = {"win": None, "broken": False}
 
+def _opener(url, holder, opened):
+    """Tray and API handler that shows (or restores) the dashboard window."""
     def open_win(icon=None, item=None):
         if holder["broken"]:
             webbrowser.open(url)
@@ -171,10 +166,11 @@ def run(url, open_now=False):
             webbrowser.open(url)
             return
         _focus()
+    return open_win
 
-    from .web import Handler
-    Handler.opener = open_win  # a second `run --open` POSTs /api/open instead of opening a browser
 
+def _exitter(quitting, opened, holder):
+    """Tray Exit: stop the loop first, then tear the window and the icon down."""
     def exit_app(icon, item):
         quitting.set()  # first: the closing handler checks this before parking in the tray
         opened.set()
@@ -188,59 +184,94 @@ def run(url, open_now=False):
             icon.stop()
         except Exception as e:
             logging.debug("shell: tray icon stop failed on exit (%s)", e)
+    return exit_app
 
-    icon = pystray.Icon("dataguard", im, TITLE,
-                        pystray.Menu(pystray.MenuItem("Open DataGuard", open_win, default=True),
-                                     pystray.MenuItem("Exit", exit_app)))
 
+def _tray_runner(icon):
     def run_tray():
         try:
             icon.run()
         except Exception as e:
-            logging.error("Tray icon failed: %s", e)
+            logging.exception("Tray icon failed: %s", e)
+    return run_tray
 
-    threading.Thread(target=run_tray, daemon=True).start()
+
+def _dashboard(url, holder, quitting, ico):
+    """One native window; any failure falls back to the browser, never to silence."""
+    try:
+        w = webview.create_window(TITLE, url, width=1100, height=740, resizable=False)
+
+        def on_shown():
+            _dark_titlebar()
+            _window_icon(ico)
+            threading.Timer(1.0, _window_icon, (ico,)).start()  # beat Windows' cached taskbar icon
+
+        w.events.shown += on_shown
+
+        def on_closing(ww=w, quit=quitting):
+            if quit.is_set():
+                return  # Exit asked for it: let the window really close
+            threading.Thread(target=ww.hide, daemon=True).start()  # hides after this handler releases
+            return False  # X parks in the tray instead of quitting
+
+        w.events.closing += on_closing
+        holder["win"] = w
+        webview.start()  # main thread; returns when the window is destroyed
+        holder["win"] = None
+    except Exception as e:  # no WebView2, window failed to load, ...: browser still works
+        holder.update(win=None, broken=True)
+        logging.exception("App window unavailable: %s - opening the dashboard in the browser.", e)
+        webbrowser.open(url)
+
+
+def _await_window(opened, quitting, holder):
+    """Block until Exit is asked (False) or the window should be created (True)."""
+    while True:
+        opened.wait(1.0)  # 1 s tick so console Ctrl+C stays responsive while idle
+        if quitting.is_set():
+            return False
+        if opened.is_set():
+            opened.clear()
+            if holder["win"] is None:
+                return True
+
+
+def _stop_tray(icon):
+    try:
+        icon.stop()
+    except Exception as e:
+        logging.debug("shell: tray icon stop failed at teardown (%s)", e)
+
+
+def _event_loop(url, holder, opened, quitting, ico, icon):
+    try:
+        while _await_window(opened, quitting, holder):
+            _dashboard(url, holder, quitting, ico)
+    finally:
+        _stop_tray(icon)
+
+
+def run(url, open_now=False):
+    """Tray icon + dashboard window; blocks until Exit. Without the extras: browser + console, as before."""
+    if not HAVE_SHELL:
+        return _fallback(url, open_now)
+
+    im = _icon_image()
+    ico = _icon_file(im)
+    opened, quitting = threading.Event(), threading.Event()
+    holder = {"win": None, "broken": False}
+
+    open_win = _opener(url, holder, opened)
+    from .web import Handler
+    Handler.opener = open_win  # a second `run --open` POSTs /api/open instead of opening a browser
+
+    exit_app = _exitter(quitting, opened, holder)
+    icon = pystray.Icon("dataguard", im, TITLE,
+                        pystray.Menu(pystray.MenuItem("Open DataGuard", open_win, default=True),
+                                     pystray.MenuItem("Exit", exit_app)))
+
+    threading.Thread(target=_tray_runner(icon), daemon=True).start()
     if open_now:
         opened.set()
 
-    try:
-        while True:
-            opened.wait(1.0)  # 1 s tick so console Ctrl+C stays responsive while idle
-            if quitting.is_set():
-                break
-            if not opened.is_set():
-                continue
-            opened.clear()
-            if holder["win"] is not None:
-                continue
-            try:
-                w = webview.create_window(TITLE, url, width=1100, height=740, resizable=False)
-
-                def on_shown():
-                    _dark_titlebar()
-                    _window_icon(ico)
-                    threading.Timer(1.0, _window_icon, (ico,)).start()  # beat Windows' cached taskbar icon
-
-                w.events.shown += on_shown
-
-                def on_closing(ww=w, quit=quitting):
-                    if quit.is_set():
-                        return  # Exit asked for it: let the window really close
-                    threading.Thread(target=ww.hide, daemon=True).start()  # hides after this handler releases
-                    return False  # X parks in the tray instead of quitting
-
-                w.events.closing += on_closing
-                holder["win"] = w
-                webview.start()  # main thread; returns when the window is destroyed
-                holder["win"] = None
-            except Exception as e:  # no WebView2, window failed to load, ...: browser still works
-                holder.update(win=None, broken=True)
-                logging.error("App window unavailable: %s - opening the dashboard in the browser.", e)
-                webbrowser.open(url)
-    except (KeyboardInterrupt, SystemExit):
-        pass
-    finally:
-        try:
-            icon.stop()
-        except Exception as e:
-            logging.debug("shell: tray icon stop failed at teardown (%s)", e)
+    _event_loop(url, holder, opened, quitting, ico, icon)
