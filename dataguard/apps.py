@@ -127,6 +127,9 @@ def _library_roots():
 
 SUITE = re.compile(r"[\\/](avast software|alwil software|avg)[\\/]", re.I)  # security suites: one product, many .exe
 
+# Folders where a block must stay local: their exes belong to Windows itself, never to one app
+SYSTEM_DIRS = ("program files", "program files (x86)", "windows", "system32", "syswow64")
+
 
 def _service_path(name):
     """Path of a Windows service whose program is `name` (AvastSvc.exe runs as a protected
@@ -148,26 +151,36 @@ def _service_path(name):
     return ""
 
 
-def _suite_members(exe):
-    """[(name, path)] for every program of the same security suite as `exe`: the vendor's whole
-    folder in Program Files and in ProgramData (installer/updater copies live there).
-    Avast talks to the internet from many processes; blocking a few leaves the rest online.
-    Members are keyed by full path - a ProgramData copy of the same file name is a DIFFERENT
-    binary with its own firewall rule; only the name gets suffixed on collision."""
-    m = SUITE.search(exe or "")
-    if not m:
+def _block_group(exe):
+    """[(name, path)] that blocking `exe` must also cover. A security suite (Avast/AVG) keeps
+    one product across many exes in the vendor's whole tree - blocking a few leaves the rest
+    online. Every other program lives with its helpers (updaters, crash handlers) in its own
+    install folder, so the folder tree is walked too: blocking one member must take the whole
+    app with it, without naming any product. A Program Files/Windows ROOT is never walked -
+    that would block unrelated apps. Members are keyed by full path - a copy of the same file
+    name in another folder is a DIFFERENT binary; only the name gets suffixed on collision."""
+    if not exe:
         return []
-    roots = [exe[:m.end(1)]]
-    pd = os.environ.get("PROGRAMDATA")
-    if pd:
-        roots.append(os.path.join(pd, m.group(1)))
+    m = SUITE.search(exe)
+    if m:
+        roots = [exe[:m.end(1)]]
+        pd = os.environ.get("PROGRAMDATA")
+        if pd:
+            roots.append(os.path.join(pd, m.group(1)))
+        depth, cap = 6, 150
+    else:
+        folder = os.path.dirname(exe)
+        if not folder or os.path.basename(folder).lower() in SYSTEM_DIRS:
+            return []  # the exe sits directly in a shared root: block it alone
+        roots = [folder]
+        depth, cap = 3, 40
     seen_paths, named, out = set(), {}, []
     for root in roots:
         if not os.path.isdir(root):
             continue
         try:
             for dp, dn, fn in os.walk(root):
-                if dp.count(os.sep) - root.count(os.sep) >= 6:
+                if dp.count(os.sep) - root.count(os.sep) >= depth:
                     dn[:] = []
                 for f in fn:
                     if not f.lower().endswith(".exe") or "unins" in f.lower():
@@ -183,9 +196,10 @@ def _suite_members(exe):
                     out.append((n, p))
         except OSError:
             pass
-    if len(out) > 150:
-        logging.warning("firewall: suite scan found %d programs, blocking only the first 150", len(out))
-        out = out[:150]
+    if len(out) > cap:
+        logging.warning("firewall: block group scan found %d programs, covering only the first %d",
+                        len(out), cap)
+        out = out[:cap]
     return out
 
 
@@ -282,6 +296,7 @@ class AppStore:
                 "PRIMARY KEY (day, app)) WITHOUT ROWID")
             self.conn.commit()
         self.pending = {}  # (day, app) -> bytes not yet written to disk
+        logging.info("apps: database ready at %s", self.path)
         self._migrate()
 
     def _migrate(self):
@@ -297,6 +312,7 @@ class AppStore:
                 finally:
                     src.close()
                 self.conn.executemany("INSERT OR REPLACE INTO app_usage VALUES (?, ?, ?)", rows)
+                logging.info("apps: imported %d row(s) from the legacy app_usage.db", len(rows))
             except sqlite3.Error as e:
                 logging.warning("app_usage.db import failed (%s); keeping it", e)
                 return
@@ -343,8 +359,9 @@ class AppStore:
                 cutoff = (date.today() - timedelta(days=KEEP_DAYS)).isoformat()
                 self.conn.execute("DELETE FROM app_usage WHERE day < ?", (cutoff,))
                 self.conn.commit()
-            except sqlite3.Error:
-                pass  # disk full or locked: retry on the next flush, tracker keeps running
+            except sqlite3.Error as e:
+                # disk full or locked: retry on the next flush, tracker keeps running
+                logging.warning("apps: flush failed (will retry): %s", e)
 
     def snapshot(self, cycle_start, today):
         """Per-app totals for the cycle, today and the last 30 days, plus the 30-day day list."""
@@ -400,6 +417,11 @@ class AppTracker(threading.Thread):
         self.paths = {}     # app name -> its .exe, for the Apps page (icon + block button)
         self.blocked_file = Path(store.path).parent / "blocked.json"
         self.blocked = self._load_blocked()  # apps switched to "block internet", kept across restarts
+        for legacy in ("limits.json", "suspended.json"):  # leftovers of the removed bandwidth limiter
+            try:
+                (Path(store.path).parent / legacy).unlink()
+            except OSError:
+                pass
         self._block_lock = threading.Lock()  # a user toggle and the periodic resync must not interleave
         self.t_flush = time.time()
         self.stop_event = threading.Event()
@@ -429,6 +451,7 @@ class AppTracker(threading.Thread):
         if p:
             self.paths[name] = p
             self._no_path.pop(name, None)
+            logging.debug("apps: found file for %s -> %s", name, p)
             return p
         if self._index_evt.is_set():  # every source really was tried: remember it for a minute
             self._no_path[name] = time.time()
@@ -514,11 +537,12 @@ class AppTracker(threading.Thread):
             return set()
 
     def group(self, name):
-        """[(name, exe)] that blocking `name` must cover: the app itself, plus (security suites
-        such as Avast) every sibling program of the same product."""
+        """[(name, exe)] that blocking `name` must cover: the app itself plus every sibling
+        program shipped in the same install folder (helpers, updaters) or - for security
+        suites - the vendor's whole tree."""
         exe = self.exe(name)
         members = {name: exe}
-        for n, p in _suite_members(exe):
+        for n, p in _block_group(exe):
             members.setdefault(n, p)
         return list(members.items())
 
@@ -577,6 +601,7 @@ class AppTracker(threading.Thread):
                 tmp.replace(self.blocked_file)
             except OSError as e:
                 logging.warning("apps: could not save the blocked list: %s", e)
+        logging.info("apps: %s %s", name, "blocked" if on else "unblocked")
         return True, ""
 
     def sync_blocks(self):
@@ -684,10 +709,14 @@ class AppTracker(threading.Thread):
         # bytes downward; when the NIC moved more than the apps reported (blind app), we record raw.
         gained = 0
         skipped = 0
+        blocked_skipped = 0
         deltas = []
         for pid, (name, v) in cur.items():
             if pids is not None and pid not in pids:
                 skipped += 1
+                continue
+            if record and name in self.blocked:
+                blocked_skipped += 1  # firewalled: its bytes never reach the counted NIC
                 continue
             prev = self.base.get(pid)
             d = v - prev[1] if prev is not None and prev[0] == name and v >= prev[1] else 0
@@ -707,15 +736,15 @@ class AppTracker(threading.Thread):
                 self.store.add(day, name, d)
                 gained += d
         self.base = cur
-        self.diag = "v1.2.1 · %s processes with connections, %d read via WMI, %d loopback-only%s" % (
+        self.diag = "v1.3.0 · %s processes with connections, %d read via WMI, %d loopback-only, %d blocked%s" % (
             "?" if pids is None else len({q for q in pids}), len(blind),
-            len(loop - (remote or set())),
+            len(loop - (remote or set())), blocked_skipped,
             "" if scale in (0.0, 1.0) else ", scaled %.0f%% to NIC" % (scale * 100))
         logging.debug(
             "tick: record=%s pids=%s raw_delta=%d nic_delta=%s scale=%.3f gained=%d "
-            "procs=%d blind=%d skipped_no_conn=%d loopback_skipped=%d",
+            "procs=%d blind=%d skipped_no_conn=%d loopback_skipped=%d blocked_skipped=%d",
             record, "?" if pids is None else len(pids), raw_delta, nic_tot, scale, gained,
-            len(cur), len(blind), skipped, loopback_skipped)
+            len(cur), len(blind), skipped, loopback_skipped, blocked_skipped)
         if record and self.totals_fn and time.time() - self.t_recon >= 60:
             self.t_recon = time.time()
             self._reconcile(day, deltas)
@@ -784,9 +813,16 @@ class AppTracker(threading.Thread):
 
     def snapshot(self, cycle_start, today):
         data = self.store.snapshot(cycle_start, today)
+        known = {r["app"] for r in data["apps"]}
+        for name in sorted(self.blocked - known):  # a blocked app must stay listed after a reset
+            data["apps"].append({"app": name, "today": 0, "cycle": 0, "d30": 0, "days": {}})
+        data["apps"].sort(key=lambda r: (-r["cycle"], -r["d30"], r["app"]))
         for r in data["apps"]:
             r["blocked"] = r["app"] in self.blocked
             r["blocked_here"] = r["blocked"] and bool(self.allowed())  # enforced on this network right now
+        data["count"] = len(data["apps"])
         data.update(supported=self.supported, interval=self.INTERVAL, err=self.err,
-                    diag=getattr(self, "diag", ""))
+                    diag=getattr(self, "diag", ""), blocked=sorted(self.blocked))
+        logging.debug("apps: snapshot %d app(s), %d blocked",
+                      data["count"], len(self.blocked))
         return data

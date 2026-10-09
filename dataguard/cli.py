@@ -22,6 +22,7 @@ from .live import Monitor
 from .settings import default_home
 from .usage import Store
 from .web import Handler, Server
+from . import __version__
 
 ENTRY_SCRIPT = Path(__file__).resolve().parents[1] / "dataguard.py"  # what startup must launch
 LOG_CAP = 16 * 1024 * 1024  # dataguard.log never grows past this
@@ -130,6 +131,14 @@ def cmd_run(args, home):
     store = Store(home)
     port = args.port or store.cfg["port"]
     url = f"http://127.0.0.1:{port}"
+    logging.info("cli: DataGuard %s starting (home=%s, python=%s, port=%d)",
+                 __version__, home, sys.version.split()[0], port)
+    logging.info("cli: config reset_day=%s iface=%s ssid=%s count_mode=%s notify=%s "
+                 "alert_pcts=%s burst_mb_per_min=%s plan_gb=%s",
+                 store.cfg.get("reset_day"), store.cfg.get("iface"), store.cfg.get("ssid"),
+                 store.cfg.get("count_mode"), store.cfg.get("notify"),
+                 store.cfg.get("alert_pcts"), store.cfg.get("burst_mb_per_min"),
+                 store.cfg.get("plan_gb"))
     mon = Monitor(store)
     Handler.mon = mon
     tries = 8 if os.environ.get("DG_RESTART") else 1  # a copy that is still shutting down may hold the port a beat
@@ -176,6 +185,26 @@ def cmd_run(args, home):
     tracker.start()
     mon_t = threading.Thread(target=mon.run, daemon=True)
     mon_t.start()
+    logging.info("cli: web server, app tracker (interval %ds) and monitor threads started",
+                 tracker.INTERVAL)
+
+    def heartbeat():
+        """A one-line state summary every 5 minutes: the log should answer 'is it alive
+        and what is it seeing' without a debugger."""
+        while True:
+            time.sleep(300)
+            try:
+                s = mon.store.summary()
+                logging.info("heartbeat: used=%.2f GB today=%.2f MB counting=%s iface=%s "
+                             "ssid=%s blocked=%d tracker_err=%r mon_err=%r",
+                             s["used"] / mon.store.gb, s["today"] / mon.store.mb,
+                             mon.counting, mon.iface, mon.ssid,
+                             len(tracker.blocked),
+                             tracker.err, mon.err)
+            except Exception as e:
+                logging.warning("heartbeat: %s", e)
+
+    threading.Thread(target=heartbeat, daemon=True, name="dataguard-heartbeat").start()
 
     def seal():  # installed app only: keep DataGuard itself off the internet (loopback kept)
         from . import firewall
@@ -196,11 +225,13 @@ def cmd_run(args, home):
     except (KeyboardInterrupt, SystemExit):
         pass
     finally:
+        logging.info("cli: shutting down")
         mon.stop.set()
         mon.wake.set()
         mon_t.join(2)
         tracker.stop()
         store.flush(force=True)
+        logging.info("cli: stopped cleanly")
     return 0
 
 

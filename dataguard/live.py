@@ -53,7 +53,10 @@ class Monitor:
         stats = psutil.net_if_stats() if stats is None else stats
         cfg = self.store.cfg
         want = cfg["iface"]
+        prev_iface = self.iface
         self.iface = want if want != "auto" and want in counters else auto_iface(list(counters), stats, counters)
+        if self.iface != prev_iface:
+            logging.info("monitor: interface -> %s (configured %s)", self.iface, want)
 
         delta = {}
         for nic, c in counters.items():
@@ -91,7 +94,13 @@ class Monitor:
             counted = True
         if cfg.get("count_mode", "auto") == "off":  # the dashboard's toggle: count nothing at all
             counted = False
+        if self.counting != counted:
+            logging.info("monitor: counting %s (ssid=%s configured=%s mode=%s)",
+                         "ON" if counted else "OFF", self.ssid, cfg["ssid"],
+                         cfg.get("count_mode", "auto"))
         self.counting = counted
+        logging.debug("sample: %s rx=%d tx=%d counted=%s ssid=%s",
+                      self.iface, drx, dtx, counted, self.ssid)
 
         with self.store.lock:
             self.ring.append((t0, now, drx, dtx, counted))
@@ -277,6 +286,7 @@ class Monitor:
                 self.err = ""
             except Exception as e:  # keep the guard alive whatever happens
                 self.err = f"{type(e).__name__}: {e}"
+                logging.warning("monitor: %s", self.err)
             self.wake.wait(1.0 if time.time() - self.last_ui < 10 else 5.0)
             self.wake.clear()
 
