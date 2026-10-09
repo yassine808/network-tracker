@@ -1039,5 +1039,5 @@ async function tick() {
   if (!document.hidden) timer = setTimeout(tick, 1000);
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { clearTimeout(timer); tick(); } });
-void tick();
+setTimeout(tick, 0);
 </script></body></html>

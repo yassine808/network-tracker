@@ -353,16 +353,20 @@ class AppStore:
     """Daily per-app byte totals in one SQLite file. Thread-safe (one guarded connection)."""
 
     def __init__(self, home):
-        text = os.fspath(home)  # --home comes from argv: NUL/newline smuggle a path past mkdir/open
+        text = os.fspath(home)  # --home comes from argv: validate before anything touches disk
         if "\x00" in text or "\n" in text or "\r" in text:
             raise ValueError(f"invalid home path: {text!r}")
-        folder = Path(text)
+        if ".." in Path(text).parts:  # a traversal must never leave the folder the user asked for
+            raise ValueError(f"invalid home path: {text!r}")
+        if "?" in text:  # sqlite URI query syntax (file:path?k=v) has no business in a folder path
+            raise ValueError(f"invalid home path: {text!r}")
+        folder = Path(text).resolve()  # normalize argv first: every path below is built from this
         folder.mkdir(parents=True, exist_ok=True)
         self.path = folder / DB_NAME
         self.lock = threading.RLock()
-        root, resolved = folder.resolve(), self.path.resolve()  # a db resolving outside home must not open
-        if resolved != root and root not in resolved.parents:
-            raise ValueError(f"path escapes {root}: {DB_NAME}")
+        resolved = self.path.resolve()  # a db resolving outside home must not open
+        if resolved != folder and folder not in resolved.parents:
+            raise ValueError(f"path escapes {folder}: {DB_NAME}")
         self.conn = sqlite3.connect(str(self.path), check_same_thread=False)
         with self.lock:
             self.conn.execute(

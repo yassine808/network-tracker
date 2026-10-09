@@ -260,8 +260,6 @@ def cmd_run(args, home):
     from . import shell
     try:
         shell.run(url, open_now=args.open)
-    except (KeyboardInterrupt, SystemExit):
-        pass
     finally:
         logging.info("cli: shutting down")
         mon.stop.set()

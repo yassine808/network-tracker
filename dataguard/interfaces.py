@@ -41,55 +41,73 @@ def _netsh_ssid(blk):
     return None
 
 
+def _netsh_name(out):
+    """SSID across netsh adapters: prefer one whose State is "connected" (a disconnected
+    adapter still prints its old SSID), fall back to the first one seen."""
+    first, found = None, None
+    for blk in re.split(r"(?m)^(?=Interface name)", out):
+        name = _netsh_ssid(blk)
+        if not name:
+            continue
+        if first is None:
+            first = name
+        if re.search(r"^[ \t]*State[ \t]*:[ \t]*connected[ \t]*$", blk, re.M | re.I):
+            found = name
+            break
+    return found or first
+
+
+def _profile_ssid(cmd, what):
+    """Connection-profile name (equals the SSID); None when Windows won't show it."""
+    out = run_quiet(cmd, timeout=10, enc="utf-8")
+    if out and out.strip():
+        logging.debug("get_ssid: %s -> %s", what, out.strip())
+        return out.strip()
+    return None
+
+
+def _wifi_adapters_up():
+    """Wi-Fi adapters that are up: the list, [] for none, None when psutil fails."""
+    try:
+        stats = psutil.net_if_stats()
+        return [n for n, s in stats.items() if WIFI.search(n) and s.isup]
+    except Exception:
+        return None
+
+
 def _ssid_win():
     """Windows: netsh first, then the connection-profile name, then an honest unknown."""
     out = run_quiet(["netsh", "wlan", "show", "interfaces"])
     if out:
-        # several adapters: a DISCONNECTED one still prints its old SSID, so take the
-        # name of an interface whose State is "connected"; fall back to the first seen
-        first, found = None, None
-        for blk in re.split(r"(?m)^(?=Interface name)", out):
-            name = _netsh_ssid(blk)
-            if not name:
-                continue
-            if first is None:
-                first = name
-            if re.search(r"^[ \t]*State[ \t]*:[ \t]*connected[ \t]*$", blk, re.M | re.I):
-                found = name
-                break
-        name = found or first
+        name = _netsh_name(out)
         if name:
             logging.debug("get_ssid: netsh -> %s", name)
             return name
     # netsh gave no name: on a fresh PC Windows 11 24H2 hides it until location access is
     # allowed. The connection profile name equals the SSID and needs no permission.
-    ps = run_quiet(["powershell", "-NoProfile", "-NonInteractive", "-Command",
-                    "[Console]::OutputEncoding=[Text.Encoding]::UTF8;"
-                    "$i=@(Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' -and "
-                    "$_.PhysicalMediaType -match '802.11|Native' } | "
-                    "ForEach-Object { $_.ifIndex });"
-                    "Get-NetConnectionProfile | Where-Object { $i -contains $_.InterfaceIndex } | "
-                    "Select-Object -First 1 -ExpandProperty Name"],
-                   timeout=10, enc="utf-8")
-    if ps and ps.strip():
-        logging.debug("get_ssid: profile name -> %s", ps.strip())
-        return ps.strip()
-    ps = run_quiet(["powershell", "-NoProfile", "-NonInteractive", "-Command",
-                    "[Console]::OutputEncoding=[Text.Encoding]::UTF8;"
-                    "Get-NetConnectionProfile | Where-Object { $_.InterfaceAlias -match "
-                    "'Wi-?Fi|WLAN|Wireless|802.11' } | Select-Object -First 1 -ExpandProperty Name"],
-                   timeout=10, enc="utf-8")
-    if ps and ps.strip():
-        logging.debug("get_ssid: profile alias -> %s", ps.strip())
-        return ps.strip()
+    name = _profile_ssid(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                          "[Console]::OutputEncoding=[Text.Encoding]::UTF8;"
+                          "$i=@(Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' -and "
+                          "$_.PhysicalMediaType -match '802.11|Native' } | "
+                          "ForEach-Object { $_.ifIndex });"
+                          "Get-NetConnectionProfile | Where-Object { $i -contains $_.InterfaceIndex } | "
+                          "Select-Object -First 1 -ExpandProperty Name"],
+                         "profile name")
+    if name:
+        return name
+    name = _profile_ssid(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                          "[Console]::OutputEncoding=[Text.Encoding]::UTF8;"
+                          "Get-NetConnectionProfile | Where-Object { $_.InterfaceAlias -match "
+                          "'Wi-?Fi|WLAN|Wireless|802.11' } | Select-Object -First 1 -ExpandProperty Name"],
+                         "profile alias")
+    if name:
+        return name
     # still nothing: only say "not on Wi-Fi" if no Wi-Fi adapter is up; otherwise unknown
-    try:
-        stats = psutil.net_if_stats()
-        up = [n for n, s in stats.items() if WIFI.search(n) and s.isup]
-        if up:
-            logging.debug("get_ssid: Wi-Fi adapter %s up but name unreadable", up)
-            return None
-    except Exception:
+    up = _wifi_adapters_up()
+    if up:
+        logging.debug("get_ssid: Wi-Fi adapter %s up but name unreadable", up)
+        return None
+    if up is None:  # psutil failed: we learned nothing
         return None
     logging.debug("get_ssid: no Wi-Fi adapter up (netsh=%s)", "ran" if out is not None else "failed")
     return "" if out is not None else None
@@ -97,8 +115,10 @@ def _ssid_win():
 
 def _ssid_mac():
     out = run_quiet(["networksetup", "-getairportnetwork", "en0"])
-    m = re.search(r"Network:[ \t]*(.*)$", out or "", re.M)
-    name = m.group(1).rstrip(" \t") if m else ""
+    text = out or ""
+    at = text.find("Network:")  # str ops instead of a regex: same leftmost match, no backtracking
+    line = text[at + len("Network:"):].split("\n", 1)[0].lstrip(" \t") if at >= 0 else ""
+    name = line.rstrip(" \t")
     return name if name else None  # recent macOS hides the name; treat as unknown
 
 
