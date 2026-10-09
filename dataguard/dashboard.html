@@ -316,7 +316,7 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
       </div>
       <div class="cmeta">
         <div><span>Used</span><b id="used">-</b><small><label for="planGb" style="display:inline">of</label><input id="planGb" type="number" min="1" max="100000" step="1" inputmode="decimal" aria-label="Data plan size in gigabytes"> GB</small></div>
-        <div><span>Renews in</span><b><span id="days">-</span> days</b><small id="renew"></small></div>
+        <div><span>Renews in</span><b><span id="days">-</span></b><small id="renew"></small></div>
       </div>
       <div class="pinfo" id="limnote"></div>
       <button type="button" class="funpill" id="fun" title="Click for another comparison"></button>
@@ -429,6 +429,7 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
 <script>
 "use strict";
 const $ = s => document.querySelector(s);
+const LS = (() => { try { const s = window.localStorage; s.getItem("dg_probe"); return s; } catch (e) { return { getItem: () => null, setItem() {} }; } })();
 let U = {gb: 1e9, mb: 1e6}, filled = false, timer = 0, ST = null;
 
 const gb = b => { const v = b / U.gb; return (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1)) + " GB"; };
@@ -442,7 +443,7 @@ const dstr = iso => new Date(iso + "T12:00:00").toLocaleDateString(undefined, {m
 const txt = (sel, t) => { $(sel).textContent = t; };
 const tone = p => { if (p >= 90) { return "var(--bad)"; } if (p >= 75) { return "var(--warn)"; } return "var(--ok)"; };
 const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) { e.className = cls; } if (text !== undefined) { e.textContent = text; } return e; };
-const msg = t => toast(t);
+const msg = (t, kind) => toast(t, kind);
 let toastTimer = 0, toastHide = 0;
 const toast = (t, kind) => {
   const el = $("#toast");
@@ -456,7 +457,7 @@ const toast = (t, kind) => {
 const dayKey = () => { const d = new Date();
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
 let ac = null, master = null, alarmTimer = 0;
-const sfxOn = () => localStorage.getItem("dg_snd") !== "0";
+const sfxOn = () => LS.getItem("dg_snd") !== "0";
 const actx = () => {
   if (!ac) { ac = new (window.AudioContext || window.webkitAudioContext)();
     master = ac.createGain(); master.gain.value = .85; master.connect(ac.destination); }
@@ -665,12 +666,12 @@ function renderQuota(s, shown, pct) {
 }
 function renderAlerts(pct, dk) {
   const tb = $("#tbar");
-  const silent = localStorage.getItem("dg_alarm_off") === dk;
+  const silent = LS.getItem("dg_alarm_off") === dk;
   tb.classList.toggle("bl1", pct >= 75 && pct < 90);
   tb.classList.toggle("bl2", pct >= 90 && pct < 100);
   tb.classList.toggle("bl3", pct >= 100 && !silent);
-  if (pct >= 75 && pct < 100 && localStorage.getItem("dg_chime_" + dk) !== "1") { chime(); localStorage.setItem("dg_chime_" + dk, "1"); }
-  if (pct >= 90 && pct < 100 && localStorage.getItem("dg_warn_" + dk) !== "1") { warnSfx(); localStorage.setItem("dg_warn_" + dk, "1"); }
+  if (pct >= 75 && pct < 100 && LS.getItem("dg_chime_" + dk) !== "1") { chime(); LS.setItem("dg_chime_" + dk, "1"); }
+  if (pct >= 90 && pct < 100 && LS.getItem("dg_warn_" + dk) !== "1") { warnSfx(); LS.setItem("dg_warn_" + dk, "1"); }
   if (pct >= 100 && !silent) startAlarm(); else stopAlarm();
   $("#tbIgnore").hidden = !(pct >= 100 && !silent);
 }
@@ -679,7 +680,7 @@ function renderKill(s, dk) {
   killActive = !!k.active;
   $("#killBox").hidden = !k.active;
   if (k.active) { txt("#killSub", "Today's " + (k.gb || 10) + " GB hotspot cap was reached. It lifts tomorrow, or restore it now."); }
-  const cutIg = localStorage.getItem("dg_ig_cut") === dk;
+  const cutIg = LS.getItem("dg_ig_cut") === dk;
   let tier = "";
   if (k.active && !cutIg) { tier = "cut"; } else if (k.pending && !cutIg) { tier = "pending"; }
   setVeil(tier, s);
@@ -700,7 +701,7 @@ function render(s) {
     fitRem();
   }
   txt("#remn", s.reserve ? gb(s.reserve) + " reserve counted" : "");
-  txt("#days", String(s.days_left));
+  txt("#days", s.days_left + (s.days_left === 1 ? " day" : " days"));
   txt("#renew", "renews " + dstr(s.cycle_end));
   txt("#limnote", gb(Math.max(0, s.budget - s.used)) + " usable left");
   txt("#fun", funText());
@@ -712,7 +713,7 @@ function render(s) {
 
   txt("#today", sz(s.today));
   const dk = dayKey();
-  let base = Number.parseFloat(localStorage.getItem("dg_tbar_" + dk) || "0");
+  let base = Number.parseFloat(LS.getItem("dg_tbar_" + dk) || "0");
   if (base < 0 || Number.isNaN(base)) { base = 0; }
   const shown = Math.max(0, s.today - base);
   let r = 0;
@@ -765,7 +766,11 @@ async function toggleBlock(btn, name, on) {
     toast(appsFlash);
     if (on) sfx.block(); else sfx.allow();
   } catch (e) { appsFlash = name + ": " + e.message; toast(appsFlash, "err"); }
-  blockBusy = false;
+  finally {
+    blockBusy = false;
+    btn.disabled = false;
+    btn.textContent = on ? "Block internet" : "Unblock";
+  }
   clearTimeout(window.__af); window.__af = setTimeout(() => { appsFlash = ""; }, 6000);
   tick();
 }
@@ -835,9 +840,9 @@ document.querySelectorAll("#appSorts .sg").forEach(b => { b.onclick = () => {
 function renderApps(a) {
   lastApps = a;
   const box = $("#apps"), note = $("#appsNote"), head = $("#appsHead");
+  if (a.err) { head.hidden = true; box.replaceChildren(); note.textContent = "Tracker problem: " + a.err; return; }
   if (!a.supported) { head.hidden = true; box.replaceChildren(); note.textContent = "Per-app history only works on Windows."; return; }
   if (appsFlash) { note.textContent = appsFlash; }
-  else if (a.err) { note.textContent = "Tracker problem: " + a.err; }
   else { note.textContent = "Per-app totals are reconciled each minute to the Overview's own count. A blocked app records no usage while the block is enforced." + (a.diag ? " [" + a.diag + "]" : ""); }
   const all = (a.apps || []).slice(), days = a.days || [];
   const known = new Set(all.map(r => r.app));
@@ -869,20 +874,22 @@ function renderApps(a) {
   }
 }
 
-let saveT = 0, saveSeq = 0;
+let saveT = 0, saveSeq = 0, saveChain = Promise.resolve();
 async function autoSave() {
   const plan = +$("#f_plan").value, day = +$("#f_day").value, res = +$("#f_res").value;
-  if (!(plan >= 1 && day >= 1 && day <= 31 && res >= 0 && res <= 50)) { msg("Not saved yet: check the plan, renewal day and reserve values."); return; }
+  if (!(plan >= 1 && day >= 1 && day <= 31 && res >= 0 && res <= 50)) { msg("Not saved yet: check the plan, renewal day and reserve values.", "err"); return; }
   const seq = ++saveSeq;
-  try {
-    await post("/api/config", {
-      plan_gb: plan, reset_day: day, reserve_pct: res,
-      ssid: $("#f_ssid").value, iface: $("#f_iface").value,
-      alert_pcts: $("#f_alerts").value.split(",").map(x => Number.parseInt(x, 10)).filter(x => x > 0),
-      burst_mb_per_min: Math.max(0, +$("#f_burst").value || 0), binary_gb: $("#f_bin").checked, notify: $("#f_notify").checked});
-    if (seq === saveSeq) { msg("Saved \u2713"); sfx.saved(); }
-    tick();
-  } catch (e) { msg("Couldn't save: " + e.message); }
+  saveChain = saveChain.then(async () => {
+    try {
+      await post("/api/config", {
+        plan_gb: plan, reset_day: day, reserve_pct: res,
+        ssid: $("#f_ssid").value, iface: $("#f_iface").value,
+        alert_pcts: $("#f_alerts").value.split(",").map(x => Number.parseInt(x, 10)).filter(x => x > 0),
+        burst_mb_per_min: Math.max(0, +$("#f_burst").value || 0), binary_gb: $("#f_bin").checked, notify: $("#f_notify").checked});
+      if (seq === saveSeq) { msg("Saved \u2713"); sfx.saved(); }
+      tick();
+    } catch (e) { msg("Couldn't save: " + e.message, "err"); }
+  });
 }
 const queueSave = now => { clearTimeout(saveT); saveT = setTimeout(autoSave, now ? 0 : 700); };
 ["f_plan", "f_day", "f_res", "f_ssid", "f_alerts", "f_burst"].forEach(id => { $("#" + id).addEventListener("input", () => queueSave(false)); });
@@ -923,11 +930,12 @@ $("#useSsid").onclick = async () => {
   try {
     const j = await (await fetch("/api/ssid")).json();
     if (j.ssid) { $("#f_ssid").value = j.ssid; (msg("Wi-Fi name set to \u201c" + j.ssid + "\u201d."), queueSave(true)); }
+    else if (j.ssid === "") { msg("You're not on Wi-Fi right now."); }
     else if (j.iface) {
       $("#f_ssid").value = j.iface;
       (msg("Windows won't reveal the Wi-Fi name here, so counting is pinned to the connection \u201c" + j.iface + "\u201d instead."), queueSave(true));
     }
-    else msg(j.ssid === "" ? "You're not on Wi-Fi right now." : "Couldn't read the Wi-Fi name on this system.");
+    else msg("Couldn't read the Wi-Fi name on this system.");
   } catch (e) { msg(e.message); }
 };
 $("#test").onclick = async () => { try { await post("/api/notify-test", {}); msg("Sent; look for a notification."); } catch (e) { msg(e.message); } };
@@ -949,11 +957,10 @@ $("#killBtn").onclick = async () => {
   $("#killBtn").disabled = false; tick();
 };
 $("#vIgnore").onclick = () => {
-  const d = dayKey();
-  localStorage.setItem("dg_ig_cut", d);
-  if (veilTier === "pending") post("/api/kill", {skip: true}).catch(e => toast("Couldn't skip today's cut: " + e.message, "err"));
-  toast(veilTier === "pending" ? "The internet stays on until tomorrow." : "Ignored for today.");
-  veilTier = ""; $("#veil").hidden = true; tick();
+  const d = dayKey(), pending = veilTier === "pending";
+  const done = () => { LS.setItem("dg_ig_cut", d); toast(pending ? "The internet stays on until tomorrow." : "Ignored for today."); veilTier = ""; $("#veil").hidden = true; tick(); };
+  if (pending) post("/api/kill", {skip: true}).then(done).catch(e => toast("Couldn't skip today's cut: " + e.message, "err"));
+  else done();
 };
 $("#vAct").onclick = async () => {
   const on = veilTier === "pending";
@@ -967,13 +974,13 @@ $("#vAct").onclick = async () => {
 };
 $("#f_snd").checked = sfxOn();
 $("#f_snd").onchange = e => {
-  localStorage.setItem("dg_snd", e.target.checked ? "1" : "0");
+  LS.setItem("dg_snd", e.target.checked ? "1" : "0");
   if (e.target.checked) voice({f: 880, d: .18, g: .12});
 };
-$("#tbIgnore").onclick = () => { localStorage.setItem("dg_alarm_off", dayKey()); stopAlarm(); toast("Alarm paused until tomorrow."); tick(); };
+$("#tbIgnore").onclick = () => { LS.setItem("dg_alarm_off", dayKey()); stopAlarm(); toast("Alarm paused until tomorrow."); tick(); };
 $("#tbarReset").onclick = () => {
   if (!ST) return;
-  localStorage.setItem("dg_tbar_" + dayKey(), String(Math.max(0, ST.today || 0)));
+  LS.setItem("dg_tbar_" + dayKey(), String(Math.max(0, ST.today || 0)));
   toast("Bar restarted. Today's total is kept."); tick();
 };
 $("#netEdit").onclick = () => { go("settings"); $("#f_ssid").focus(); $("#f_ssid").select(); };
@@ -997,6 +1004,7 @@ const go = key => {
 };
 document.querySelectorAll(".nav").forEach(b => { b.onclick = () => go(b.dataset.go); });
 document.addEventListener("keydown", e => {
+  if (!$("#veil").hidden) return;
   if (e.target.matches("input,select,textarea") || e.ctrlKey || e.metaKey || e.altKey) return;
   const k = {1: "main", 2: "apps", 3: "settings"}[e.key];
   if (k) go(k);
@@ -1018,7 +1026,7 @@ function applyFont(name, save) {
   const f = FONTS.find(x => x[0] === name) || FONTS[0];
   document.documentElement.style.setProperty("--f", f[1]);
   document.querySelectorAll(".fchip").forEach(c => c.classList.toggle("on", c.dataset.font === f[0]));
-  if (save) { try { localStorage.setItem("dg_font", f[0]); } catch (e) {} }
+  if (save) { try { LS.setItem("dg_font", f[0]); } catch (e) {} }
   if (typeof drawChart === "function") try { drawChart(); } catch (e) {}
 }
 FONTS.forEach(f => {
@@ -1027,14 +1035,20 @@ FONTS.forEach(f => {
   b.onclick = () => applyFont(f[0], true);
   $("#fonts").appendChild(b);
 });
-let savedFont = ""; try { savedFont = localStorage.getItem("dg_font") || ""; } catch (e) {}
+let savedFont = ""; try { savedFont = LS.getItem("dg_font") || ""; } catch (e) {}
 applyFont(savedFont, false);
 
 async function tick() {
-  try { render(await (await fetch("/api/status", {cache: "no-store"})).json()); }
-  catch (e) { const c = $("#netState"); c.dataset.state = "err"; $("#netTxt").textContent = "Can't reach DataGuard"; console.error(e); }
-  try { renderApps(await (await fetch("/api/apps", {cache: "no-store"})).json()); }
-  catch (e) { console.error(e); }
+  try {
+    const r = await fetch("/api/status", {cache: "no-store"});
+    if (!r.ok) throw new Error((await r.json()).error || r.status);
+    render(await r.json());
+  } catch (e) { const c = $("#netState"); c.dataset.state = "err"; $("#netTxt").textContent = "Can't reach DataGuard"; console.error(e); }
+  try {
+    const r = await fetch("/api/apps", {cache: "no-store"});
+    if (!r.ok) throw new Error((await r.json()).error || r.status);
+    renderApps(await r.json());
+  } catch (e) { console.error(e); }
   clearTimeout(timer);
   if (!document.hidden) timer = setTimeout(tick, 1000);
 }
