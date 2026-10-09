@@ -270,7 +270,7 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
   .hr .sys{display:none}
   .wrap{height:auto}
   header{grid-template-columns:1fr;justify-items:center}
-  .hl{display:none}
+  .hl{flex-wrap:wrap;justify-content:center;row-gap:6px}
   .cards{grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
 }
 @media(max-width:560px){.apphead,.approw summary{grid-template-columns:minmax(80px,1fr) 60px 70px 104px}.apphead span:nth-child(2),.approw summary .ubar{display:none}}
@@ -289,6 +289,7 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
       <svg id="icoWifi" class="nico" viewBox="0 0 24 24" aria-hidden="true"><path d="M1.5 8.5a15 15 0 0 1 21 0"/><path d="M5 12.2a10 10 0 0 1 14 0"/><path d="M8.4 15.7a5.2 5.2 0 0 1 7.2 0"/><circle cx="12" cy="19.2" r="1.3" fill="currentColor" stroke="none"/></svg>
       <svg id="icoEth" class="nico" viewBox="0 0 24 24" aria-hidden="true" style="display:none"><rect x="3" y="4" width="18" height="12" rx="1.8"/><path d="M8 20h8M12 16v4"/></svg>
       <span id="netName"></span><button type="button" id="netEdit" title="Choose the Wi-Fi name DataGuard counts" aria-label="Choose the Wi-Fi name DataGuard counts">&#9998;</button></div>
+    <span id="netState" class="cnt" data-state="wait"><i class="cdot"></i><span id="netTxt">Starting&hellip;</span><button type="button" id="cntSw" class="tsw on" role="switch" aria-checked="true" title="Count traffic automatically, or stop counting entirely" aria-label="Counting: auto"></button></span>
   </div>
   <nav>
     <button type="button" class="nav on" data-go="main">Overview</button>
@@ -296,7 +297,6 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
     <button type="button" class="nav" data-go="settings">Settings</button>
   </nav>
   <div class="hr">
-    <span id="netState" class="cnt" data-state="wait"><i class="cdot"></i><span id="netTxt">Starting&hellip;</span><button type="button" id="cntSw" class="tsw on" role="switch" aria-checked="true" title="Count traffic automatically, or stop counting entirely" aria-label="Counting: auto"></button></span>
     <span class="sys">CPU <b id="cpuV">-</b> &nbsp;RAM <b id="ramV">-</b></span>
   </div>
 </header>
