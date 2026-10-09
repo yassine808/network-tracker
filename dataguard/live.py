@@ -109,6 +109,13 @@ class Monitor:
             self.t_flush = now
             self.store.flush()
 
+    def nic_total(self):
+        """Cumulative rx+tx bytes of the counted NIC, or None before the first reading.
+        Callers diff two readings to get bytes moved over THEIR OWN window (the Apps
+        tracker needs its 10 s window, not this sampler's 1-5 s one)."""
+        base = self.base.get(self.iface) if self.iface else None
+        return (base[0] + base[1]) if base else None
+
     def window(self, ref, span, nbins, counted_only=False):
         """Spread recorded traffic over [ref-span, ref] in equal bins -> (rx_bins, tx_bins) in bytes."""
         w, t_start = span / nbins, ref - span

@@ -53,6 +53,26 @@ def io_proxy(p, remote_pids=None):
     return p.io_counters().other_bytes
 
 
+def loopback_pids():
+    """{pid} holding a loopback-only socket (nothing beyond 127.0.0.0/8 or ::1). Such a process
+    is talking to itself, not the internet - its 'other' bytes must not count as usage."""
+    try:
+        conns = psutil.net_connections(kind="inet")
+    except (psutil.AccessDenied, OSError):
+        return set()
+    loop = set()
+    remote = set()
+    for c in conns:
+        if not c.pid or not c.raddr:
+            continue
+        ip = c.raddr.ip
+        if ip.startswith("127.") or ip in ("::1",):
+            loop.add(c.pid)
+        else:
+            remote.add(c.pid)
+    return loop - remote  # only fully-local processes: one real socket beats the loopback ones
+
+
 def top_processes(window=3.0, limit=8):
     """Windows only: rank apps by recent 'other' I/O among processes that own network sockets. An estimate,
     not exact bytes. Linux and macOS have no comparable per-process counter, so the view reports itself unavailable."""

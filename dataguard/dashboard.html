@@ -209,7 +209,7 @@ label.sw input:checked+i{background:var(--c)}
 label.sw input:checked+i::after{transform:translateX(14px);background:#0b1020}
 label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
 /* apps */
-.apphead,.approw summary{display:grid;grid-template-columns:minmax(140px,1fr) 96px 84px 96px 124px;gap:14px;align-items:center}
+.apphead,.approw summary{display:grid;grid-template-columns:minmax(140px,1fr) 96px 84px 96px 124px 124px;gap:14px;align-items:center}
 .apphead{font-size:12px;color:var(--mute);padding:12px 0 6px}
 .apphead[hidden]{display:none}
 .apphead span:nth-child(n+3){text-align:right}
@@ -222,6 +222,7 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
 .car{display:inline-block;color:var(--mute);margin-right:6px;transition:transform .15s}
 .approw[open] .car{transform:rotate(90deg)}
 .v1,.v2{text-align:right}.v1{color:var(--mute)}
+.duo{font-size:11.5px;color:var(--mute);white-space:nowrap;text-align:right}.duo .dn{color:var(--down)}.duo .ul{color:var(--up)}
 .blk{padding:4px 10px;font-size:12px;justify-self:end}
 .blk.on{border-color:var(--bad);color:var(--bad)}
 .days{display:flex;gap:2px;align-items:flex-end;height:48px;margin:2px 0 6px;padding:0 4px}
@@ -273,7 +274,7 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
   .hl{display:none}
   .cards{grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
 }
-@media(max-width:560px){.apphead,.approw summary{grid-template-columns:minmax(80px,1fr) 60px 70px 104px}.apphead span:nth-child(2),.approw summary .ubar{display:none}}
+@media(max-width:560px){.apphead,.approw summary{grid-template-columns:minmax(80px,1fr) 60px 70px 104px}.apphead span:nth-child(2),.approw summary .ubar,.apphead span:nth-child(5),.approw summary .duo{display:none}}
 
 #toast{position:fixed;right:24px;bottom:24px;max-width:340px;padding:11px 16px;border-radius:12px;background:var(--panel2);border:1px solid var(--line);box-shadow:0 14px 40px rgba(0,0,0,.5);font-size:13.5px;z-index:90;opacity:0;transform:translateY(12px);transition:opacity .25s,transform .25s}
 #toast.show{opacity:1;transform:none}
@@ -384,7 +385,7 @@ label.sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
       <button type="button" class="sg on" data-sort="cycle">This cycle</button>
     </div></div>
     <div class="sub" id="appsNote">Loading&hellip;</div>
-    <div class="apphead" id="appsHead" hidden><span>Application name</span><span>Usage</span><span>Today</span><span>This cycle</span><span></span></div>
+    <div class="apphead" id="appsHead" hidden><span>Application name</span><span>Usage</span><span>Today</span><span>This cycle</span><span>Down / Up</span><span></span></div>
     <div id="apps"></div></section>
 </div>
 
@@ -770,7 +771,7 @@ function buildAppRow(r, days, max) {
   ic.onerror = () => { ic.onerror = null; ic.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"; };
   nm.append(ic, document.createTextNode(r.app));
   const bar = mk("span", "ubar"); bar.append(mk("i"));
-  s.append(nm, bar, mk("span", "v1"), mk("span", "v2"));
+  s.append(nm, bar, mk("span", "v1"), mk("span", "v2"), mk("span", "duo"));
   const lbl = mk("div", "daylbl");
   lbl.append(mk("span"), mk("span", "", "last 30 days"), mk("span"));
   d.append(s, mk("div", "days"), lbl);
@@ -782,6 +783,14 @@ function syncAppRow(d, r, days, max) {
   const s = d.querySelector("summary");
   s.querySelector(".v1").textContent = sz(r.today);
   s.querySelector(".v2").textContent = sz(r.cycle);
+  const duo = s.querySelector(".duo");
+  if (duo) {
+    const dt = appSort === "today", dn = dt ? (r.down_today || 0) : (r.down || 0), up = dt ? (r.up_today || 0) : (r.up || 0);
+    duo.replaceChildren();
+    duo.append(mk("span", "dn", "\u2193" + sz(dn)), document.createTextNode(" "), mk("span", "ul", "\u2191" + sz(up)));
+    duo.title = (dt ? "Today" : "This cycle") + " \u00b7 download " + sz(dn) + ", upload " + sz(up)
+      + " - split by the network's overall down/up ratio; Windows doesn't report direction per app";
+  }
   const v = appSort === "today" ? r.today : r.cycle, bar = s.querySelector(".ubar");
   bar.querySelector("i").style.width = (max > 0 ? Math.min(100, v / max * 100) : 0) + "%";
   bar.title = (appSort === "today" ? "Today: " : "This cycle: ") + sz(v);
@@ -828,7 +837,7 @@ function renderApps(a) {
   const box = $("#apps"), note = $("#appsNote"), head = $("#appsHead");
   if (!a.supported) { head.hidden = true; box.replaceChildren(); note.textContent = "Per-app history only works on Windows."; return; }
   note.textContent = appsFlash || (a.err ? "Tracker problem: " + a.err
-    : "Estimated from per-app I/O counters while DataGuard runs: an approximation, not exact network bytes." + (a.diag ? " [" + a.diag + "]" : ""));
+    : "Per-app totals are reconciled each minute to the Overview's own count; down/up is split by the network's overall ratio (Windows doesn't report direction per app)." + (a.diag ? " [" + a.diag + "]" : ""));
   const all = (a.apps || []).slice(), days = a.days || [];
   const known = new Set(all.map(r => r.app));
   (Array.isArray(a.blocked) ? a.blocked : []).forEach(n => {

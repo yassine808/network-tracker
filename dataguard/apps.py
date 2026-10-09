@@ -14,7 +14,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from .common import DB_NAME, IS_WIN, psutil
-from .processes import io_proxy, _remote_pids
+from .processes import io_proxy, _remote_pids, loopback_pids
 
 KEEP_DAYS = 400
 
@@ -262,52 +262,6 @@ def _wmi_other():
         return {}
 
 
-PS_USAGE = r"""
-$ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName System.Runtime.WindowsRuntime
-$null = [Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType = WindowsRuntime]
-$null = [Windows.Networking.Connectivity.NetworkUsageStates, Windows.Networking.Connectivity, ContentType = WindowsRuntime]
-$null = [Windows.Networking.Connectivity.AttributedNetworkUsage, Windows.Networking.Connectivity, ContentType = WindowsRuntime]
-$m = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
-$lt = [System.Collections.Generic.IReadOnlyList[Windows.Networking.Connectivity.AttributedNetworkUsage]]
-$gm = $m.MakeGenericMethod($lt)
-$st = New-Object Windows.Networking.Connectivity.NetworkUsageStates  # zeroed = DoNotCare
-$end = [DateTimeOffset]::Now
-$ranges = @{ cycle = [DateTimeOffset]::Parse($env:DG_CYCLE); today = [DateTimeOffset]::Parse($env:DG_TODAY) }
-$res = @{ cycle = @{}; today = @{} }
-foreach ($p in [Windows.Networking.Connectivity.NetworkInformation]::GetConnectionProfiles()) {
-  if ($env:DG_SSID -and $p.ProfileName -ne $env:DG_SSID) { continue }
-  foreach ($k in 'cycle', 'today') {
-   try {
-    $t = $gm.Invoke($null, @($p.GetAttributedNetworkUsageAsync($ranges[$k], $end, $st)))
-    [void]$t.Wait(20000)
-    foreach ($u in $t.Result) {
-      $n = $u.AttributionName
-      if (-not $n) { continue }
-      $res[$k][$n] = [int64]$res[$k][$n] + [int64]$u.BytesSent + [int64]$u.BytesReceived
-    }
-   } catch { $script:perr = $_.Exception.Message }
-  }
-}
-if (-not $res.cycle.Count -and $script:perr) { throw $script:perr }
-$res | ConvertTo-Json -Compress -Depth 4
-"""
-
-
-def _win_usage(cycle_start, today, ssid):
-    """Windows' own per-app data usage (what Settings > Data usage shows): exact bytes,
-    includes Store apps like WhatsApp, no admin needed. {"cycle": {app: bytes}, "today": {...}}."""
-    env = dict(os.environ, DG_CYCLE=cycle_start, DG_TODAY=today, DG_SSID=ssid or "")
-    r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-                        "-Command", PS_USAGE], capture_output=True, text=True, errors="replace",
-                       timeout=60, env=env, stdin=subprocess.DEVNULL, creationflags=0x08000000)
-    lines = [l for l in (r.stdout or "").splitlines() if l.strip()]
-    if r.returncode != 0 or not lines:
-        err = [l for l in ((r.stderr or "") + "\n" + (r.stdout or "")).splitlines() if l.strip()]
-        raise RuntimeError(err[0][:110] if err else "no output")
-    return json.loads(lines[-1])
-
-
 def _iso(day):
     return day.isoformat() if isinstance(day, date) else day
 
@@ -354,6 +308,18 @@ class AppStore:
     def add(self, day, app, n):
         with self.lock:
             self.pending[(day, app)] = self.pending.get((day, app), 0) + n
+
+    def rows_since(self, day):
+        """[(day, app, bytes)] for every row on/after `day`, pending bytes folded in."""
+        with self.lock:
+            agg = {}
+            for d, a, n in self.conn.execute(
+                    "SELECT day, app, bytes FROM app_usage WHERE day >= ?", (day,)):
+                agg[(d, a)] = agg.get((d, a), 0) + n
+            for (d, a), n in self.pending.items():
+                if d >= day:
+                    agg[(d, a)] = agg.get((d, a), 0) + n
+            return [(d, a, n) for (d, a), n in agg.items()]
 
     def clear_since(self, day):
         """Drop this cycle's per-app rows (reset button): day = first day to remove."""
@@ -443,10 +409,9 @@ class AppTracker(threading.Thread):
         self._index_started = False
         self._lnk = {}            # program stem -> the shortcut that carries its icon
         self._no_path = {}        # app name -> when the file last could not be found
-        self.winuse = {}          # Windows' own per-app usage: {"cycle": {app: bytes}, "today": {...}}
-        self.win_err = ""
-        self._cycle_start = ""
-        self.ssid_fn = lambda: ""
+        self.nic_fn = None        # set by the dashboard: () -> bytes the counted NIC moved this tick
+        self.totals_fn = None     # set by the dashboard: () -> Overview's bytes for today (ground truth)
+        self.t_recon = 0.0        # last time the today total was reconciled against the Overview
 
     def exe(self, name):
         """File path for an app: the recorded one when it still exists, else looked up live
@@ -651,7 +616,6 @@ class AppTracker(threading.Thread):
         if not self.supported:
             return
         self._start_index()  # so the first page load finds icons, not a disk walk
-        threading.Thread(target=self._usage_loop, daemon=True, name="dataguard-winusage").start()
         gate = None  # None = the network is still unknown; judged on the first ticks
         last_resync = 0.0
         while not self.stop_event.is_set():
@@ -676,26 +640,6 @@ class AppTracker(threading.Thread):
             self.stop_event.wait(self.INTERVAL if gate is not None else 1.0)
         self.store.flush(force=True)
 
-    def _usage_loop(self):
-        """Every 15 s: ask Windows for its per-app totals (only while the meter is counting)."""
-        while not self.stop_event.is_set():
-            try:
-                if self.allowed():
-                    start = self._cycle_start or date.today().replace(day=1).isoformat()
-                    self.winuse = _win_usage(start, date.today().isoformat(), self.ssid_fn())
-                else:
-                    self.winuse = {}
-                self.win_err = ""
-            except Exception as e:
-                self.win_err = (str(e) or type(e).__name__)[:110]
-            self.stop_event.wait(15)
-
-    def stop(self):
-        self.stop_event.set()
-        if self.is_alive():
-            self.join(timeout=5)
-        self.store.flush(force=True)
-
     def tick(self):
         record = self.allowed()  # off the configured network: track state, but record nothing
         try:
@@ -703,71 +647,146 @@ class AppTracker(threading.Thread):
         except (psutil.AccessDenied, OSError):
             pids = None
         day = date.today().isoformat()
-        cur, gained, blind = {}, 0, {}
-        remote = _remote_pids()  # who holds a real internet socket, for the suite-driver filter
+        cur, blind = {}, {}
+        remote = _remote_pids()   # who holds a real internet socket, for the suite-driver filter
+        loop = loopback_pids()    # who holds nothing but loopback: camera/mic chatter, not internet
 
-        def acct(pid, name, v):
-            nonlocal gained
-            cur[pid] = (name, v)  # baseline for EVERY process, so a new app counts from its first socket
-            if pids is not None and pid not in pids:
-                return
-            prev = self.base.get(pid)
-            d = v - prev[1] if prev is not None and prev[0] == name and v >= prev[1] else 0
-            if record and (d or pids is not None):  # a 0-byte row shows a new app at once
-                self.store.add(day, name, d)
-                gained += d
-
+        # Pass 1 - read every process's raw counter into cur{}, naming/blinding as we go, but
+        # record nothing yet (the scale factor needs the whole population first).
+        loopback_skipped = 0
         for p in psutil.process_iter(["name", "exe"]):
             name = p.info.get("name") or f"pid {p.pid}"
             if p.info.get("exe"):
                 self.paths.setdefault(name, p.info["exe"])  # record for every process, connected or not
             name = _owner_name(p, name)  # WebView2/Electron helpers: bill the app that owns them
             try:
-                v = io_proxy(p, remote)
+                if p.pid in loop and p.pid not in remote:
+                    v = 0  # loopback-only process (e.g. NVIDIA Broadcast on 127.0.0.1): not internet
+                    loopback_skipped += 1
+                else:
+                    v = io_proxy(p, remote)
             except (psutil.AccessDenied, psutil.Error, AttributeError):
                 if pids is None or p.pid in pids:
                     blind[p.pid] = name  # protected / packaged app: read it from WMI below
+                    logging.debug("tick: pid %s (%s) blind (AccessDenied/WMI)", p.pid, name)
                 continue
-            acct(p.pid, name, v)
+            cur[p.pid] = (name, v)  # baseline for EVERY process, so a new app counts from its first socket
         if blind:
             raw = _wmi_other()
             for pid, name in blind.items():
-                if pid in raw:
-                    acct(pid, name, raw[pid])
-                elif record:
-                    self.store.add(day, name, 0)  # unreadable counter: still list the app
+                cur[pid] = (name, raw.get(pid, 0))  # unreadable counter: hold at 0 so the app still lists
+
+        # Pass 2 - a process's raw 'other' bytes include device/driver I/O (NVIDIA Broadcast's
+        # camera work) and loopback, which the NIC never sees, so the raw deltas sum larger than
+        # the Overview's counter. Scale each app's share so the recorded total tracks the bytes
+        # the counted NIC actually moved: Apps then adds up to the Overview instead of over-counting
+        # it. scale is capped at 1.0 so a sample-boundary mismatch never inflates or shrinks real
+        # bytes downward; when the NIC moved more than the apps reported (blind app), we record raw.
+        gained = 0
+        skipped = 0
+        deltas = []
+        for pid, (name, v) in cur.items():
+            if pids is not None and pid not in pids:
+                skipped += 1
+                continue
+            prev = self.base.get(pid)
+            d = v - prev[1] if prev is not None and prev[0] == name and v >= prev[1] else 0
+            if d < 0:
+                d = 0  # a counter reset must never subtract from the app's total
+            if d:
+                deltas.append((name, d))
+        # Deltas only - both sides must be bytes moved in THIS tick's window, or the scale
+        # (NIC delta / absolute counter) collapses to ~0 and the apps stop counting at all.
+        raw_delta = sum(d for _, d in deltas)
+        nic_tot = self.nic_fn() if self.nic_fn else None
+        scale = (nic_tot / raw_delta) if (record and raw_delta > 0 and nic_tot is not None) else 1.0
+        scale = min(scale, 1.0)
+        if record:
+            for name, d in deltas:
+                d = int(d * scale)
+                self.store.add(day, name, d)
+                gained += d
         self.base = cur
-        self.diag = "v1.2.1 · %s processes with connections, %d read via WMI" % (
-            "?" if pids is None else len({q for q in pids}), len(blind))
+        self.diag = "v1.2.1 · %s processes with connections, %d read via WMI, %d loopback-only%s" % (
+            "?" if pids is None else len({q for q in pids}), len(blind),
+            len(loop - (remote or set())),
+            "" if scale in (0.0, 1.0) else ", scaled %.0f%% to NIC" % (scale * 100))
+        logging.debug(
+            "tick: record=%s pids=%s raw_delta=%d nic_delta=%s scale=%.3f gained=%d "
+            "procs=%d blind=%d skipped_no_conn=%d loopback_skipped=%d",
+            record, "?" if pids is None else len(pids), raw_delta, nic_tot, scale, gained,
+            len(cur), len(blind), skipped, loopback_skipped)
+        if record and self.totals_fn and time.time() - self.t_recon >= 60:
+            self.t_recon = time.time()
+            self._reconcile(day, deltas)
         if time.time() - self.t_flush >= self.FLUSH_EVERY:
             self.t_flush = time.time()
             self.store.flush()
 
+    def _reconcile(self, day, deltas):
+        """Make each cycle day's Apps total equal the Overview's (ground truth).
+
+        The meter counts every byte the counted NIC moved, per day; the apps are summed
+        from per-process counters, which miss some bytes (no readable counter, a window
+        the sampler was down) and invent others (device/driver I/O). tick()'s scale
+        removes the excess each tick, but a missed window leaves a lasting hole - and a
+        past bug can leave a lasting overcount. Once a minute, walk the cycle's days and
+        close each gap: hand the difference to that day's apps in proportion to what they
+        already recorded (or, with nothing recorded yet, to whatever just moved bytes)."""
+        try:
+            truth = self.totals_fn()
+        except Exception as e:
+            logging.warning("reconcile: Overview totals unavailable: %s", e)
+            return
+        if not truth:
+            return
+        start, ov_days = truth["start"], truth["days"]
+        by_day = {}
+        for d, app, n in self.store.rows_since(start):
+            if n:
+                by_day.setdefault(d, []).append((app, n))
+        for d in sorted(set(ov_days) | set(by_day)):
+            if d < start:
+                continue
+            mine = sum(n for _, n in by_day.get(d, ()))
+            diff = int(ov_days.get(d, 0)) - mine
+            if abs(diff) < 256 * 1024:  # sub-quarter-MB jitter is window alignment, not a real gap
+                continue
+            rows = by_day.get(d) or []
+            total = sum(n for _, n in rows)
+            if not rows and d == day and deltas:  # nothing on record: share it by what just moved
+                rows, total = [(n, b) for n, b in deltas if b > 0], sum(b for _, b in deltas if b > 0)
+            if not rows or total <= 0:
+                continue
+            if diff > 0:
+                add = {a: int(diff * n / total) for a, n in rows}
+                top = max(rows, key=lambda kv: kv[1])[0]  # rounding remainder to the biggest share
+                add[top] += diff - sum(add.values())
+                for a, b in add.items():
+                    if b:
+                        self.store.add(d, a, b)
+            else:  # an old overcount: shrink proportionally, never below zero
+                real = 0
+                for a, n in rows:
+                    s = min(n, int(-diff * n / total))
+                    if s:
+                        self.store.add(d, a, -s)
+                        real += s
+                diff = -real
+            logging.info("reconcile: %s apps=%d vs Overview=%d -> %+d across %d app(s)",
+                         d, mine, int(ov_days.get(d, 0)), diff, len(rows))
+
+    def stop(self):
+        self.stop_event.set()
+        if self.is_alive():
+            self.join(timeout=5)
+        self.store.flush(force=True)
+
     def snapshot(self, cycle_start, today):
         data = self.store.snapshot(cycle_start, today)
-        self._cycle_start = _iso(cycle_start)
-        wu = self.winuse
-        if wu:  # Windows' exact numbers fill in apps our counters missed or under-counted
-            by = {_stem_key(r["app"]): r for r in data["apps"]}
-            for k in ("today", "cycle"):
-                for name, n in (wu.get(k) or {}).items():
-                    key = _stem_key(name)
-                    if not key:
-                        continue
-                    r = by.get(key)
-                    if r is None:
-                        r = {"app": name, "today": 0, "cycle": 0, "d30": 0, "days": {}}
-                        data["apps"].append(r)
-                        by[key] = r
-                    r[k] = max(r[k], int(n))
-            for r in data["apps"]:
-                r["d30"] = max(r["d30"], r["cycle"])
-            data["apps"].sort(key=lambda r: (-r["cycle"], -r["d30"], r["app"]))
-            data["count"] = len(data["apps"])
         for r in data["apps"]:
             r["blocked"] = r["app"] in self.blocked
             r["blocked_here"] = r["blocked"] and bool(self.allowed())  # enforced on this network right now
         data.update(supported=self.supported, interval=self.INTERVAL, err=self.err,
-                    diag=getattr(self, "diag", "") + " · Windows usage: "
-                    + (self.win_err or "%d apps" % len((wu or {}).get("cycle") or {})))
+                    diag=getattr(self, "diag", ""))
         return data

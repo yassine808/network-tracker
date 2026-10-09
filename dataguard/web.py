@@ -47,6 +47,33 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"error": "bad host"}, 403)  # blocks DNS-rebinding tricks from web pages
         return False
 
+    def _split_direction(self, data, start, today):
+        """Give each app a down/up split.
+
+        Windows doesn't expose per-process direction (psutil counters are cumulative
+        bytes with no rx/tx side, and the per-connection APIs that might have are dead
+        ends - see TO-DO history). The honest approximation: share each app's bytes by
+        the counted NIC's real rx:tx ratio over the same window, which the Overview's
+        own store already tracks per day."""
+        st = self.mon.store
+        with st.lock:
+            cyc = [0, 0]
+            for k, v in st.days.items():
+                if k >= start.isoformat():
+                    cyc[0] += v[0]
+                    cyc[1] += v[1]
+            tdy = st.days.get(today.isoformat(), [0, 0])
+
+        def split(r, rx, tx):
+            tot = rx + tx
+            r["down"], r["up"] = (int(r["cycle"] * rx / tot), int(r["cycle"] * tx / tot)) if tot > 0 else (r["cycle"], 0)
+            t = tdy[0] + tdy[1]
+            r["down_today"], r["up_today"] = (int(r["today"] * tdy[0] / t), int(r["today"] * tdy[1] / t)) if t > 0 else (r["today"], 0)
+
+        for r in data.get("apps", ()):
+            split(r, cyc[0], cyc[1])
+        return data
+
     def do_GET(self):
         if not self._host_ok():
             return
@@ -78,7 +105,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"supported": False, "apps": [], "count": 0,
                                        "days": [], "err": "tracker not running"})
                 start, _ = cycle_bounds(date.today(), self.mon.store.cfg["reset_day"])
-                self._json(self.tracker.snapshot(start, date.today()))
+                data = self.tracker.snapshot(start, date.today())
+                self._split_direction(data, start, date.today())
+                self._json(data)
             elif path == "/api/app_icon":
                 if self.tracker is None:
                     return self._json({"error": "tracker not running"}, 404)

@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 import webbrowser
+from datetime import date
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -23,7 +24,7 @@ from .usage import Store
 from .web import Handler, Server
 
 ENTRY_SCRIPT = Path(__file__).resolve().parents[1] / "dataguard.py"  # what startup must launch
-LOG_CAP = 3 * 1024 * 1024  # dataguard.log never grows past this
+LOG_CAP = 16 * 1024 * 1024  # dataguard.log never grows past this
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"  # where Windows keeps logon apps
 RUN_NAME = "DataGuard"
 
@@ -53,7 +54,7 @@ def setup_logging(home):
     con_h = logging.StreamHandler(sys.stdout)
     con_h.setFormatter(logging.Formatter("[%(asctime)s] %(message)s", "%H:%M:%S"))
     root = logging.getLogger()
-    root.setLevel(logging.INFO)
+    root.setLevel(logging.DEBUG)  # per-tick sampler detail goes to dataguard.log
     root.addHandler(file_h)
     root.addHandler(con_h)
 
@@ -147,7 +148,30 @@ def cmd_run(args, home):
     # allowed: the meter's network flag - None until known, True only on the configured Wi-Fi
     tracker = AppTracker(AppStore(home), allowed=lambda: mon.counting)
     Handler.tracker = tracker
-    tracker.ssid_fn = lambda: store.cfg["ssid"]
+
+    nic_prev = [None]
+
+    def nic_bytes():
+        """Bytes the counted NIC moved since this tracker's previous tick (Overview = ground
+        truth). Differencing the cumulative counter keeps both sides on the tracker's own
+        window; a reset/jump (total went backwards) reports None so apps record raw."""
+        tot = mon.nic_total()
+        prev, nic_prev[0] = nic_prev[0], tot
+        if tot is None or prev is None or tot < prev:
+            return None
+        return tot - prev
+
+    tracker.nic_fn = nic_bytes
+
+    def totals_today():
+        """The meter's per-day byte totals for this cycle - ground truth for the Apps' reconciliation."""
+        from .settings import cycle_bounds
+        start, _ = cycle_bounds(date.today(), mon.store.cfg["reset_day"])
+        with mon.store.lock:
+            days = {k: sum(v) for k, v in mon.store.days.items() if k >= start.isoformat()}
+        return {"start": start.isoformat(), "days": days}
+
+    tracker.totals_fn = totals_today
     threading.Thread(target=server.serve_forever, daemon=True).start()
     tracker.start()
     mon_t = threading.Thread(target=mon.run, daemon=True)
