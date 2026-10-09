@@ -3,6 +3,7 @@
 import json
 import logging
 import threading
+import time
 from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -16,6 +17,22 @@ from .settings import cycle_bounds
 from . import __version__
 
 TOP_LOCK = threading.Lock()
+
+# /api/ssid is polled by the dashboard and every get_ssid() spawns netsh + PowerShell: keep
+# the last answer for a moment so a burst of requests cannot become a burst of processes.
+_SSID_LOCK = threading.Lock()
+_SSID_CACHE = {"t": 0.0, "v": None}
+_SSID_TTL = 2.0  # seconds
+
+
+def _ssid_cached():
+    with _SSID_LOCK:
+        now = time.monotonic()
+        if now - _SSID_CACHE["t"] < _SSID_TTL:
+            return _SSID_CACHE["v"]
+        _SSID_CACHE["v"] = get_ssid()
+        _SSID_CACHE["t"] = now
+        return _SSID_CACHE["v"]
 
 
 class Server(ThreadingHTTPServer):
@@ -49,8 +66,19 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"error": "bad host"}, 403)  # blocks DNS-rebinding tricks from web pages
         return False
 
+    def _fetch_ok(self):
+        """The one gate for GET and POST: a cross-site request is a simple request a browser
+        sends without preflight, so any http:// page could read the API (hotspot name
+        included) from this user's browser. Dashboard sends same-origin, the native WebView
+        same-site, a typed URL none - all allowed, as is a missing header (curl, the CLI)."""
+        if (self.headers.get("Sec-Fetch-Site") or "") != "cross-site":
+            return True
+        logging.warning("http: rejected cross-site %s %s", self.command, self.path)
+        self._json({"error": "cross-site request refused"}, 403)
+        return False
+
     def do_GET(self):
-        if not self._host_ok():
+        if not (self._host_ok() and self._fetch_ok()):
             return
         path = self.path.split("?", 1)[0]
         logging.debug("http: GET %s", self.path)
@@ -78,7 +106,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/top":
             self._get_top()
         elif path == "/api/ssid":
-            self._json({"ssid": get_ssid(),
+            self._json({"ssid": _ssid_cached(),
                         "iface": self.mon.iface if self.mon is not None else None})
         elif path == "/api/apps":
             self._get_apps()
@@ -125,7 +153,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_POST(self):
-        if not self._host_ok():
+        if not (self._host_ok() and self._fetch_ok()):
             return
         if "application/json" not in (self.headers.get("Content-Type") or ""):
             return self._json({"error": "JSON only"}, 415)

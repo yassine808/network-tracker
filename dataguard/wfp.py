@@ -213,10 +213,24 @@ public static class WfpB
         }
     }
 
+    static int Fail(IntPtr h, Guid[] keys, bool added)
+    {
+        // a failure after the first add would leave that PERSISTENT filter installed while we
+        // report failure: remove both keys so no untracked filter outlives a failed Block()
+        if (added)
+        {
+            try { foreach (Guid key in keys) FilterDelete(h, key); }
+            catch { }  // best-effort cleanup: never mask the original failure
+        }
+        return 1;
+    }
+
     public static int Block(string exe, string sl, string k4, string k6, out string msg)
     {
         msg = "";
         IntPtr h = IntPtr.Zero;
+        bool added = false;
+        Guid[] keys = null;
         try
         {
             int e = FwpmEngineOpen0(null, 0xFFFFFFFF, IntPtr.Zero, IntPtr.Zero, out h);
@@ -228,18 +242,19 @@ public static class WfpB
             e = SubLayerEnsure(h, sub);
             if (e != 0) { msg = "Windows refused the DataGuard filter section (0x" + e.ToString("X8") + ")"; return 1; }
             Guid[] layers = { LAYER_V4, LAYER_V6 };
-            Guid[] keys = { Guid.Parse(k4), Guid.Parse(k6) };
+            keys = new Guid[] { Guid.Parse(k4), Guid.Parse(k6) };
             for (int i = 0; i < 2; i++)
             {
                 e = FilterDelete(h, keys[i]);
-                if (e != 0) { msg = "the old block filter could not be removed (0x" + e.ToString("X8") + ")"; return 1; }
+                if (e != 0) { msg = "the old block filter could not be removed (0x" + e.ToString("X8") + ")"; return Fail(h, keys, added); }
                 e = FilterAdd(h, layers[i], sub, keys[i], app, "DataGuard block " + System.IO.Path.GetFileName(exe));
-                if (e != 0) { msg = "Windows refused the block filter (0x" + e.ToString("X8") + ")"; return 1; }
-                if (!FilterPresent(h, keys[i])) { msg = "Windows did not keep the block filter"; return 1; }
+                if (e != 0) { msg = "Windows refused the block filter (0x" + e.ToString("X8") + ")"; return Fail(h, keys, added); }
+                added = true;
+                if (!FilterPresent(h, keys[i])) { msg = "Windows did not keep the block filter"; return Fail(h, keys, added); }
             }
             return 0;
         }
-        catch (Exception ex) { msg = ex.Message; return 1; }
+        catch (Exception ex) { msg = ex.Message; return Fail(h, keys, added); }
         finally { if (h != IntPtr.Zero) FwpmEngineClose0(h); }
     }
 

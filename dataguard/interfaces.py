@@ -1,8 +1,10 @@
 """Network interfaces: which one to count, and the Wi-Fi (hotspot) name."""
 
+import ctypes
 import logging
 import re
 import subprocess
+import sys
 
 from .common import IS_MAC, IS_WIN, NO_WINDOW, psutil
 
@@ -15,7 +17,19 @@ VIRTUAL = re.compile(
 WIFI = re.compile(r"wi-?fi|wlan|wlp\d|wlx|wireless|802\.11|^wl\d|^ath\d|^en0$", re.I)
 
 
+def _oem_enc():
+    """cp + this machine's OEM code page, or None: netsh writes OEM bytes when its output is
+    redirected (Python would decode them as ANSI, turning a non-ASCII SSID like "Café 5G"
+    into mojibake that never matches)."""
+    try:
+        return "cp%d" % ctypes.windll.kernel32.GetOEMCP()
+    except Exception:
+        return None
+
+
 def run_quiet(cmd, timeout=4, enc=None):
+    if sys.platform.startswith("win"):
+        enc = enc or _oem_enc()  # default decoding: netsh writes OEM, not ANSI, when redirected
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, errors="replace", encoding=enc,
                            timeout=timeout, creationflags=NO_WINDOW)

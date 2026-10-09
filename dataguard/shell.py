@@ -187,12 +187,16 @@ def _exitter(quitting, opened, holder):
     return exit_app
 
 
-def _tray_runner(icon):
+def _tray_runner(icon, holder, opened):
     def run_tray():
         try:
             icon.run()
         except Exception as e:
+            # no tray backend (e.g. Linux without StatusNotifier): wake the main loop so the
+            # window/browser takes over instead of the main thread waiting on a tray forever
             logging.exception("Tray icon failed: %s", e)
+            holder["broken"] = True
+            opened.set()
     return run_tray
 
 
@@ -270,7 +274,7 @@ def run(url, open_now=False):
                         pystray.Menu(pystray.MenuItem("Open DataGuard", open_win, default=True),
                                      pystray.MenuItem("Exit", exit_app)))
 
-    threading.Thread(target=_tray_runner(icon), daemon=True).start()
+    threading.Thread(target=_tray_runner(icon, holder, opened), daemon=True).start()
     if open_now:
         opened.set()
 

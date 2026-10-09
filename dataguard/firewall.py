@@ -260,15 +260,17 @@ def _block_script(exe, rule):
     """Elevated script: every layer is tried independently, success if any layer holds."""
     return (
         "  $ErrorActionPreference = 'Continue'\n"
-        "  $rule = %s\n  $exe = %s\n  $fw = $false\n"
+        # netsh must get the path from a variable: spelled inside a double-quoted string,
+        # PowerShell evaluates $(...) in it (this script runs admin) and $/` corrupt the rule
+        "  $rule = %s\n  $exe = %s\n  $prog = 'program=' + $exe\n  $fw = $false\n"
         # ---- layer 1: netsh ------------------------------------------------------------
         "  netsh advfirewall firewall delete rule \"name=$rule\" *>> $out\n"
         "  netsh advfirewall firewall add rule \"name=$rule\" dir=out action=block "
-        "\"program=$exe\" enable=yes profile=any *>> $out\n"
+        "$prog enable=yes profile=any *>> $out\n"
         "  if ($LASTEXITCODE -eq 0) {\n"
         "    $fw = $true\n"
         "    netsh advfirewall firewall add rule \"name=$rule\" dir=in action=block "
-        "\"program=$exe\" enable=yes profile=any *>> $out\n"
+        "$prog enable=yes profile=any *>> $out\n"
         "  }\n"
         # ---- fallback A: NetSecurity cmdlets ------------------------------------------
         "  if (-not $fw) {\n"
@@ -450,15 +452,20 @@ def cut_active():
 
 
 def cut_internet():
-    """Block all outbound internet, keeping loopback and the local network usable (the dashboard
-    and the printer keep working). (ok, message)."""
-    return _apply([
+    """Block ALL outbound traffic while it lasts - internet, loopback and the local network,
+    so the dashboard cannot load during a cut. Restore it from the tray (Restore internet)
+    or wait for the conditions that lift it. (ok, message)."""
+    # The stale DataGuard-Allow-Local of older builds is deleted, never re-added: Windows
+    # Firewall gives an explicit block precedence over a conflicting allow whatever the
+    # order, so that allow rule could never win.
+    ok, msg = _apply([
         ["netsh", "advfirewall", "firewall", "delete", "rule", _NAME_ARG + ALLOW_RULE],
         ["netsh", "advfirewall", "firewall", "delete", "rule", _NAME_ARG + CUT_RULE],
-        ["netsh", "advfirewall", "firewall", "add", "rule", _NAME_ARG + ALLOW_RULE,
-         _DIR_OUT, "action=allow", "remoteip=127.0.0.1,localsubnet"],
         ["netsh", "advfirewall", "firewall", "add", "rule", _NAME_ARG + CUT_RULE,
          _DIR_OUT, "action=block", "remoteip=any"]])
+    if ok and not cut_active():  # netsh can exit 0 without the rule taking: never alert over that
+        return False, "Windows Firewall did not keep the cutoff rule"
+    return ok, msg
 
 
 def restore_internet():
@@ -476,17 +483,20 @@ def _seal_names(exe):
 
 
 def _seal_missing(exe):
-    """netsh argvs that rebuild the seal rules of one interpreter; already-valid rules are skipped."""
+    """netsh argvs that rebuild the seal rules of one interpreter; already-valid rules are
+    skipped. The block rule is the only one ever created: an explicit block beats a
+    conflicting allow whatever the order, so a Self-Allow could only be dead weight - a
+    stale one is just deleted."""
     block, allow = _seal_names(exe)
     argvs = []
-    for rule, act, extra in ((allow, "allow", ["remoteip=127.0.0.1,localsubnet"]),
-                             (block, "block", [])):
+    for rule in (allow, block):
         exists, program = _rule_program(rule)
         if exists and (not program or os.path.normcase(program) == os.path.normcase(exe)):
             continue
-        argvs += [["netsh", "advfirewall", "firewall", "delete", "rule", _NAME_ARG + rule],
-                  ["netsh", "advfirewall", "firewall", "add", "rule", _NAME_ARG + rule,
-                   _DIR_OUT, "action=" + act, "program=" + exe] + extra]
+        argvs += [["netsh", "advfirewall", "firewall", "delete", "rule", _NAME_ARG + rule]]
+        if rule == block:
+            argvs += [["netsh", "advfirewall", "firewall", "add", "rule", _NAME_ARG + rule,
+                       _DIR_OUT, "action=block", "program=" + exe]]
     return argvs
 
 
@@ -499,9 +509,11 @@ def _seal_kept(exes):
 
 
 def seal_app(exes):
-    """(ok, message): keep DataGuard's own interpreter(s) off the internet while loopback
-    stays allowed (the dashboard and the CLI still work). Already sealed = read-only, no
-    Windows prompt; only a missing or stale rule is rebuilt."""
+    """(ok, message): keep DataGuard's own interpreter(s) off the internet. While sealed the
+    interpreter reaches nothing - its own dashboard server included - so a second CLI copy
+    reports saved data instead of live; the dashboard itself keeps working because the
+    browser/WebView is not sealed. Already sealed = read-only, no Windows prompt; only a
+    missing or stale rule is rebuilt."""
     if not sys.platform.startswith("win"):
         return False, "only Windows has this firewall"
     argvs = []

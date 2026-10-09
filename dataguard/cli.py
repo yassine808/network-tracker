@@ -72,14 +72,18 @@ def setup_logging(home):
     root.addHandler(con_h)
 
 
-def api(port, path, payload=None):
-    """Talk to a running DataGuard. Returns parsed JSON, or None if nothing is listening."""
+def api(port, path, payload=None, strict=True):
+    """Talk to a running DataGuard. Returns parsed JSON, or None if nothing is listening.
+    strict=False also answers None when something on the port rejects the request - a
+    foreign process must not abort the offline fallback (status, calibrate)."""
     data = None if payload is None else json.dumps(payload).encode()
     req = Request(f"http://127.0.0.1:{port}{path}", data=data, headers={"Content-Type": "application/json"})
     try:
         with urlopen(req, timeout=8) as r:
             return json.loads(r.read())
     except HTTPError as e:
+        if not strict:
+            return None
         try:
             reason = json.loads(e.read()).get("error", e.reason)
         except Exception:
@@ -271,14 +275,14 @@ def cmd_run(args, home):
 
 
 def cmd_status(store):
-    s = api(store.cfg["port"], "/api/status")
+    s = api(store.cfg["port"], "/api/status", strict=False)
     print_status(s if s else store.summary(), running=bool(s))
 
 
 def cmd_calibrate(store, gb_used):
     if not 0 <= gb_used <= 100000:
         sys.exit("calibrate: gb must be a number from 0 up")
-    if api(store.cfg["port"], "/api/calibrate", {"gb": gb_used}) is None:  # not running: edit the files directly
+    if api(store.cfg["port"], "/api/calibrate", {"gb": gb_used}, strict=False) is None:  # not running: edit the files directly
         store.calibrate(gb_used)
         store.flush(force=True)
     print(f"Calibrated: this cycle now reads {gb_used:g} GB.")
