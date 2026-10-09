@@ -161,7 +161,13 @@ class Monitor:
         if cfg["ssid"]:
             big = drx + dtx >= 5_000_000
             if now - self.ssid_t >= self.SSID_EVERY or (big and now - self.ssid_t >= 3):
+                prev_ssid = self.ssid
                 self.ssid, self.ssid_t = get_ssid(), now
+                logging.debug("monitor: Wi-Fi refresh -> %r (was %r, configured %r)",
+                              self.ssid, prev_ssid, cfg["ssid"])
+                if self.ssid != prev_ssid:
+                    logging.info("monitor: Wi-Fi name changed %r -> %r (configured %r, on_network=%s)",
+                                 prev_ssid, self.ssid, cfg["ssid"], self.on_network())
             # a hotspot is configured: only that network counts; None (name unreadable on
             # Wi-Fi) counts as "trust the adapter", the dashboard shows the state live
             counted = self.on_network() is not False

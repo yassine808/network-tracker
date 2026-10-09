@@ -5,6 +5,7 @@ import logging
 import re
 import subprocess
 import sys
+import time
 
 from .common import IS_MAC, IS_WIN, NO_WINDOW, psutil
 
@@ -151,11 +152,16 @@ def _ssid_linux():
 
 def get_ssid():
     """Wi-Fi network name: str; "" when not on Wi-Fi; None when it can't be determined."""
+    t0 = time.monotonic()
     if IS_WIN:
-        return _ssid_win()
-    if IS_MAC:
-        return _ssid_mac()
-    return _ssid_linux()
+        name, src = _ssid_win(), "win"
+    elif IS_MAC:
+        name, src = _ssid_mac(), "mac"
+    else:
+        name, src = _ssid_linux(), "linux"
+    # one end-to-end line per read: the Settings "Use current Wi-Fi" button lands here last
+    logging.debug("get_ssid: end-to-end %s -> %r in %.2fs", src, name, time.monotonic() - t0)
+    return name
 
 
 def auto_iface(names, stats, counters):

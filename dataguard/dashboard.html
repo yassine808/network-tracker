@@ -881,14 +881,16 @@ async function autoSave() {
   const seq = ++saveSeq;
   saveChain = saveChain.then(async () => {
     try {
-      await post("/api/config", {
+      const payload = {
         plan_gb: plan, reset_day: day, reserve_pct: res,
         ssid: $("#f_ssid").value, iface: $("#f_iface").value,
         alert_pcts: $("#f_alerts").value.split(",").map(x => Number.parseInt(x, 10)).filter(x => x > 0),
-        burst_mb_per_min: Math.max(0, +$("#f_burst").value || 0), binary_gb: $("#f_bin").checked, notify: $("#f_notify").checked});
+        burst_mb_per_min: Math.max(0, +$("#f_burst").value || 0), binary_gb: $("#f_bin").checked, notify: $("#f_notify").checked};
+      await post("/api/config", payload);
+      console.info("[DataGuard] POST /api/config ok:", {ssid: payload.ssid, iface: payload.iface, plan_gb: payload.plan_gb});
       if (seq === saveSeq) { msg("Saved \u2713"); sfx.saved(); }
       tick();
-    } catch (e) { msg("Couldn't save: " + e.message, "err"); }
+    } catch (e) { console.error("[DataGuard] POST /api/config failed:", e); msg("Couldn't save: " + e.message, "err"); }
   });
 }
 const queueSave = now => { clearTimeout(saveT); saveT = setTimeout(autoSave, now ? 0 : 700); };
@@ -927,16 +929,27 @@ $("#rem").onchange = async () => {
   catch (e) { toast("Couldn't update the GB left: " + e.message, "err"); remRevert(); }
 };
 $("#useSsid").onclick = async () => {
+  console.info("[DataGuard] Use current Wi-Fi clicked - GET /api/ssid");
   try {
-    const j = await (await fetch("/api/ssid")).json();
-    if (j.ssid) { $("#f_ssid").value = j.ssid; (msg("Wi-Fi name set to \u201c" + j.ssid + "\u201d."), queueSave(true)); }
-    else if (j.ssid === "") { msg("You're not on Wi-Fi right now."); }
-    else if (j.iface) {
+    const r = await fetch("/api/ssid");
+    const j = await r.json();
+    console.info("[DataGuard] /api/ssid ->", r.status, j);
+    if (j.ssid) {
+      $("#f_ssid").value = j.ssid;
+      console.info("[DataGuard] setting ssid field to %j - queueing save", j.ssid);
+      (msg("Wi-Fi name set to \u201c" + j.ssid + "\u201d."), queueSave(true));
+    } else if (j.ssid === "") {
+      console.info("[DataGuard] ssid empty: not on Wi-Fi - nothing saved");
+      msg("You're not on Wi-Fi right now.");
+    } else if (j.iface) {
       $("#f_ssid").value = j.iface;
+      console.info("[DataGuard] ssid unreadable - pinning iface %j instead, queueing save", j.iface);
       (msg("Windows won't reveal the Wi-Fi name here, so counting is pinned to the connection \u201c" + j.iface + "\u201d instead."), queueSave(true));
+    } else {
+      console.warn("[DataGuard] /api/ssid gave no ssid and no iface");
+      msg("Couldn't read the Wi-Fi name on this system.");
     }
-    else msg("Couldn't read the Wi-Fi name on this system.");
-  } catch (e) { msg(e.message); }
+  } catch (e) { console.error("[DataGuard] Use current Wi-Fi failed:", e); msg(e.message); }
 };
 $("#test").onclick = async () => { try { await post("/api/notify-test", {}); msg("Sent; look for a notification."); } catch (e) { msg(e.message); } };
 $("#pv1").onclick = chime;

@@ -227,8 +227,8 @@ def cmd_run(args, home):
     store = Store(home)
     port = args.port or store.cfg["port"]
     url = f"http://127.0.0.1:{port}"
-    logging.info("cli: DataGuard %s starting (home=%s, python=%s, port=%d)",
-                 __version__, home, sys.version.split()[0], port)
+    logging.info("cli: DataGuard %s starting (home=%s, log=%s, python=%s, port=%d)",
+                 __version__, home, home / "dataguard.log", sys.version.split()[0], port)
     logging.info("cli: config reset_day=%s iface=%s ssid=%s count_mode=%s notify=%s "
                  "alert_pcts=%s burst_mb_per_min=%s plan_gb=%s",
                  store.cfg.get("reset_day"), store.cfg.get("iface"), store.cfg.get("ssid"),

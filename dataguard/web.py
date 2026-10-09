@@ -29,9 +29,12 @@ def _ssid_cached():
     with _SSID_LOCK:
         now = time.monotonic()
         if now - _SSID_CACHE["t"] < _SSID_TTL:
+            logging.debug("http: /api/ssid cache hit -> %r (age %.2fs)",
+                          _SSID_CACHE["v"], now - _SSID_CACHE["t"])
             return _SSID_CACHE["v"]
         _SSID_CACHE["v"] = get_ssid()
         _SSID_CACHE["t"] = now
+        logging.debug("http: /api/ssid cache refreshed -> %r", _SSID_CACHE["v"])
         return _SSID_CACHE["v"]
 
 
@@ -106,8 +109,11 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/top":
             self._get_top()
         elif path == "/api/ssid":
-            self._json({"ssid": _ssid_cached(),
-                        "iface": self.mon.iface if self.mon is not None else None})
+            # the Settings "Use current Wi-Fi" button's read: log what the browser got
+            name = _ssid_cached()
+            iface = self.mon.iface if self.mon is not None else None
+            logging.info("http: GET /api/ssid -> ssid=%r iface=%r", name, iface)
+            self._json({"ssid": name, "iface": iface})
         elif path == "/api/apps":
             self._get_apps()
         elif path == "/api/app_icon":
@@ -180,8 +186,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._post_open()
         st = self.mon.store
         if path == "/api/config":
+            # the button's write lands here: log every key that actually changed (autoSave
+            # re-sends the whole config, so unchanged keys must stay silent)
+            before = dict(st.cfg)
             st.set_config(body)
             self.mon.ssid_t = 0.0  # re-read the Wi-Fi name right away
+            for key in sorted(set(before) | set(st.cfg)):
+                if before.get(key) != st.cfg.get(key):
+                    logging.info("http: POST /api/config %s: %r -> %r",
+                                 key, before.get(key), st.cfg.get(key))
+            logging.debug("http: POST /api/config applied; monitor Wi-Fi re-read scheduled")
         elif path == "/api/calibrate":
             self._post_calibrate(st, body)
         elif path == "/api/notify-test":
