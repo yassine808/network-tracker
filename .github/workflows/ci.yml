@@ -8,7 +8,32 @@ on:
   workflow_dispatch:
 
 jobs:
-  checks:
+  lint:
+    name: Lint (ruff)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.9"
+      - name: Install ruff
+        run: pip install ruff==0.16.0
+      - name: "Lint (rules pinned in ruff.toml: pycodestyle errors, pyflakes, warnings)"
+        run: ruff check dataguard/ dataguard.py
+
+  compile:
+    name: Byte-compile
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.9"
+      - name: Byte-compile every module
+        run: python -m compileall -q dataguard dataguard.py
+
+  smoke:
+    name: Smoke tests
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -20,14 +45,53 @@ jobs:
           node-version: "22"
       - name: Install the one runtime package
         run: pip install psutil
-      - name: Byte-compile every module
-        run: python -m compileall -q dataguard dataguard.py
-      - name: Smoke tests
+      - name: Run the suite (35 checks, ends with node --check of the dashboard script)
         run: python tests/smoke.py
+
+  security:
+    name: Security scan (bandit)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.9"
+      - name: Install bandit
+        run: pip install bandit==1.8.6
+      - name: Scan dataguard/ for security issues
+        # Skipped tests are false positives for this codebase:
+        #   B404/B603/B607 - subprocess is the design (netsh/powershell/sc with a
+        #                    fixed argv we build, never shell=True, never user input)
+        #   B104           - the "0.0.0.0" literal is a string compare in
+        #                    processes.py, not a socket bind
+        #   B310           - urlopen targets a fixed http://127.0.0.1:{port} we
+        #                    build ourselves; no scheme or host comes from input
+        run: bandit -r dataguard -q -s B104,B310,B404,B603,B607
+
+  deps:
+    name: Dependency audit (pip-audit)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.9"
+      - name: Install pip-audit
+        run: pip install pip-audit==2.9.0
+      - name: Audit the pinned requirements
+        shell: bash
+        # pillow + pystray are excluded here: pystray depends on pillow, and
+        # pillow 11.3.0's open CVEs only have fixes in >=12.1.1, which needs
+        # Python >=3.10 while the project floor is 3.8 (runtime 3.9). The
+        # upgrade is tracked in TO-DO.md; every other pinned package must stay
+        # clean. Re-include both once the floor moves.
+        run: |
+          grep -viE '^(pillow|pystray)' requirements.txt > audit-reqs.txt
+          python -m pip_audit -r audit-reqs.txt
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: checks
+    needs: [lint, compile, smoke, security, deps]
     runs-on: windows-latest
     permissions:
       contents: write

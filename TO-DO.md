@@ -14,3 +14,10 @@
 - [x] blocked apps (e.g. NVIDIA Broadcast) still recorded internet usage
   - a blocked app's deltas are skipped while its block is enforced, and blocking
     one exe now also covers every sibling exe in its install folder
+- [ ] upgrade to Python >=3.10 and pillow >=12.1.1 (closes the 18 known CVEs)
+  - pillow 11.3.0 has 18 open CVEs, all fixed only in pillow 12.x, which needs
+    Python >=3.10 (project floor is 3.8, runtime is 3.9). pystray depends on
+    pillow, so it inherits the same set. Until the floor moves, the CI
+    pip-audit step excludes pillow + pystray and audits everything else (see
+    .github/workflows/ci.yml); once 3.10+ is the floor: bump pillow, re-include
+    both packages in that step, and drop this entry.
