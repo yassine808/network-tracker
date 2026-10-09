@@ -13,6 +13,7 @@ import time
 from datetime import date, timedelta
 from pathlib import Path
 
+from . import __version__
 from .common import DB_NAME, IS_WIN, psutil
 from .processes import io_proxy, _remote_pids, loopback_pids
 
@@ -429,18 +430,18 @@ class AppStore:
             if not self.pending and not force:
                 return
             try:
-                if self.pending:
-                    self.conn.executemany(
-                        "INSERT INTO app_usage (day, app, bytes) VALUES (?, ?, ?) "
-                        "ON CONFLICT (day, app) DO UPDATE SET bytes = app_usage.bytes + excluded.bytes",
-                        [(d, a, n) for (d, a), n in self.pending.items()])
-                    self.pending.clear()
-                cutoff = (date.today() - timedelta(days=KEEP_DAYS)).isoformat()
-                self.conn.execute("DELETE FROM app_usage WHERE day < ?", (cutoff,))
-                self.conn.commit()
+                with self.conn:  # commits on success, rolls back on error: pending stays intact
+                    if self.pending:
+                        self.conn.executemany(
+                            "INSERT INTO app_usage (day, app, bytes) VALUES (?, ?, ?) "
+                            "ON CONFLICT (day, app) DO UPDATE SET bytes = app_usage.bytes + excluded.bytes",
+                            [(d, a, n) for (d, a), n in self.pending.items()])
+                    cutoff = (date.today() - timedelta(days=KEEP_DAYS)).isoformat()
+                    self.conn.execute("DELETE FROM app_usage WHERE day < ?", (cutoff,))
+                self.pending.clear()
             except sqlite3.Error as e:
-                # disk full or locked: retry on the next flush, tracker keeps running
-                logging.warning("apps: flush failed (will retry): %s", e)
+                # disk full or locked: the bytes stay pending and retry on the next flush
+                logging.warning("apps: flush failed; bytes stay pending and retry on the next flush: %s", e)
 
     def snapshot(self, cycle_start, today):
         """Per-app totals for the cycle, today and the last 30 days, plus the 30-day day list."""
@@ -839,11 +840,12 @@ class AppTracker(threading.Thread):
         if record:
             for name, d in deltas:
                 d = int(d * scale)
-                self.store.add(day, name, d)
-                gained += d
+                if d:  # a rounding to zero must not leave a 0-byte row in the Apps list
+                    self.store.add(day, name, d)
+                    gained += d
         self.base = cur
-        self.diag = "v1.3.1 · %s processes with connections, %d read via WMI, %d loopback-only, %d blocked%s" % (
-            "?" if pids is None else len(set(pids)), len(blind),
+        self.diag = "v%s · %s processes with connections, %d read via WMI, %d loopback-only, %d blocked%s" % (
+            __version__, "?" if pids is None else len(set(pids)), len(blind),
             len(loop - (remote or set())), blocked_skipped,
             "" if scale in (0.0, 1.0) else ", scaled %.0f%% to NIC" % (scale * 100))
         logging.debug(

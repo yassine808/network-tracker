@@ -2,6 +2,7 @@
 
 import collections
 import logging
+import sys
 import threading
 import time
 from datetime import date, datetime, timedelta
@@ -13,6 +14,8 @@ from .processes import top_processes
 
 # A sample lasts 1-5 s: even 2.5 Gbps stays under 1.6 GB. Windows occasionally hands back a
 # counter that doubled - the jump looks like real traffic unless it is rejected here.
+# This is only the floor of the ceiling: _frame scales the limit with the actual window, so a
+# long sleep or a stalled SSID probe still records the real traffic it moved.
 COUNTER_JUMP = 2 * 2 ** 30
 
 KILL_GB = 10  # hard daily stop: past this on the configured hotspot, the internet gets cut
@@ -121,31 +124,35 @@ class Monitor:
         if self.iface != prev_iface:
             logging.info("monitor: interface -> %s (configured %s)", self.iface, want)
 
+        t0, self.t_last = self.t_last, now
+        elapsed = now - t0 if t0 is not None else 0
+        limit = max(COUNTER_JUMP, int(400_000_000 * elapsed))  # 400 MB/s of headroom per second of window
         delta = {}
         for nic, c in counters.items():
-            fwd = self._nic_delta(nic, (c.bytes_recv, c.bytes_sent), self.base.get(nic))
+            fwd = self._nic_delta(nic, (c.bytes_recv, c.bytes_sent), self.base.get(nic), limit)
             if fwd is not None:
                 delta[nic] = fwd
             self.base[nic] = (c.bytes_recv, c.bytes_sent)
-        t0, self.t_last = self.t_last, now
         if t0 is None or now <= t0 or self.iface not in delta:
             return None
         drx, dtx = delta[self.iface]
         return t0, drx, dtx
 
-    def _nic_delta(self, nic, cur, prev):
+    def _nic_delta(self, nic, cur, prev, limit):
         """One NIC's plausible delta, or None when there is nothing (or a lying counter) to count."""
         if prev is None:
             return None
         fwd = tuple(a - b for a, b in zip(cur, prev))
         if min(fwd) >= 0:
-            if max(fwd) <= COUNTER_JUMP:
+            if max(fwd) <= limit:
                 return fwd
             logging.warning("Implausible counter jump on %s ignored (prev=%s cur=%s)", nic, prev, cur)
-        elif max(cur) > COUNTER_JUMP:  # back near an old huge value: the twin of a doubled reading
+        elif max(cur) * 4 < max(prev):  # backwards AND collapsed: a reset, not a corrected re-read
+            return cur  # a reset counter: count from what it has re-accumulated
+        elif max(cur) > limit:  # back near an old huge value: the twin of a doubled reading
             logging.warning("Implausible counter re-read on %s ignored (prev=%s cur=%s)", nic, prev, cur)
         else:
-            return cur  # a counter that went backwards was reset (adapter restart): count from zero
+            logging.warning("Implausible counter slide on %s ignored (prev=%s cur=%s)", nic, prev, cur)
         return None
 
     def _counted(self, cfg, now, drx, dtx):
@@ -268,6 +275,8 @@ class Monitor:
         """Cut this PC's internet once usage today passes KILL_GB - but only while the configured
         hotspot (exact SSID match) is the Wi-Fi actually in use. Any other network, or an unknown
         name, or no SSID configured at all: the app just watches and never touches the firewall."""
+        if not sys.platform.startswith("win"):
+            return  # only Windows has this firewall
         st, cfg = self.store, self.store.cfg
         if not force and now - self.t_kill < 60:
             return
@@ -299,10 +308,11 @@ class Monitor:
         ok, err = firewall.restore_internet()
         if ok:
             self.kill_state = False
-            if not off:  # left the hotspot: coming back re-cuts; manual restore stays open today
-                with self.store.lock:
-                    self.store.fired.pop("killday", None)
-                    self.store.dirty = True
+            with self.store.lock:
+                # one cut decision per day is tracked by killday; popping it on every successful
+                # restore lets a return to the hotspot re-evaluate the cap
+                self.store.fired.pop("killday", None)
+                self.store.dirty = True
             logging.info("kill-switch: internet restored%s"
                          % (" (not over the cap anymore)" if not over else ""))
         else:
@@ -327,7 +337,14 @@ class Monitor:
                        f"{st.summary(datetime.fromtimestamp(now))['today'] / st.gb:.1f} GB used today "
                        "on the hotspot. The cap lifts tomorrow, or tap Restore in the dashboard.")
         else:
-            logging.warning("kill-switch: cut failed: %s", err)
+            if "declined" in (err or ""):  # refused elevation: retrying every minute is a UAC prompt loop
+                with self.store.lock:
+                    self.store.fired["killday"] = date.today().isoformat()
+                    self.store.dirty = True
+                    self.store.flush()
+                logging.info("kill-switch: elevation declined - not asking again today")
+            else:
+                logging.warning("kill-switch: cut failed: %s", err)
 
     def skip_kill_today(self):
         """The dashboard's 'cut about to happen' warning was ignored: leave the internet alone today."""
@@ -341,6 +358,10 @@ class Monitor:
         """Manual cut/restore from the dashboard. (ok, message)."""
         from . import firewall
         st = self.store
+        if on and st.cfg["ssid"] and self.on_network() is False:
+            # the firewall is only ever touched on the configured hotspot: a cut made elsewhere
+            # would just be auto-restored by check_kill within a minute
+            return False, "not on the configured hotspot"
         ok, err = firewall.cut_internet() if on else firewall.restore_internet()
         if ok:
             self.kill_state = bool(on)
@@ -396,6 +417,7 @@ class Monitor:
             s.update(cfg=dict(self.store.cfg), alerts=list(reversed(self.store.log[-10:])))
         # "about to be cut": the daily cap is reached and nothing has dealt with today yet
         pending = bool(s["cfg"].get("ssid")) and s["cfg"].get("count_mode", "auto") != "off" \
+            and self.on_network() is not False \
             and s["today"] >= KILL_GB * self.store.gb \
             and not fired_kill and not bool(self.kill_state)
         s.update(iface=self.iface, ssid=self.ssid, counting=self.counting, err=self.err,

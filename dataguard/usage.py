@@ -102,8 +102,9 @@ class Store:
     def _migrate(self):
         """One-time import of the old config.json + usage.json (the files are renamed afterwards)."""
         with self.lock, self.conn:
-            self._migrate_config()
-            self._migrate_usage()
+            parked = [p for p in (self._migrate_config(), self._migrate_usage()) if p]
+        for path in parked:  # park only after the commit: a failed write must keep the source file
+            self._park(path)
 
     def _migrate_config(self):
         if self.conn.execute("SELECT 1 FROM settings LIMIT 1").fetchone():
@@ -117,7 +118,7 @@ class Store:
             logging.warning("config.json ignored (%s); using defaults", e)
             cfg = dict(DEFAULTS)
         self._put_settings(cfg)
-        self._park(self.home / "config.json")
+        return self.home / "config.json"
 
     def _migrate_usage(self):
         if self.conn.execute("SELECT 1 FROM days LIMIT 1").fetchone():
@@ -136,7 +137,7 @@ class Store:
         self.conn.executemany("INSERT INTO alerts (t, kind, title, msg) VALUES (?, ?, ?, ?)",
                               [(str(a.get("t", "")), str(a.get("kind", "info")),
                                 str(a.get("title", "")), str(a.get("msg", ""))) for a in log])
-        self._park(self.home / USAGE_FILE)
+        return self.home / USAGE_FILE
 
     def _parse_legacy(self, use):
         try:
@@ -313,11 +314,12 @@ class Store:
             days_left = (end - today).days
             allowance = max(0.0, (budget - max(0, used - today_used)) / days_left)
 
-            # Recent daily average over whole calendar days (days with no traffic count as zero).
+            # Recent daily average over whole calendar days: the window starts at the cycle
+            # start (or 7 days back, whichever is later), so leading quiet days count as zero.
             reliable = False
             if cyc and min(cyc) < tkey:
                 yesterday = today - timedelta(days=1)
-                w0 = max(date.fromisoformat(min(cyc)), yesterday - timedelta(days=6))
+                w0 = max(start, yesterday - timedelta(days=6))
                 n = (yesterday - w0).days + 1
                 avg = sum(cyc.get((w0 + timedelta(days=i)).isoformat(), 0) for i in range(n)) / n
                 reliable = n >= 2

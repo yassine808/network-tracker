@@ -9,7 +9,7 @@ import sys
 import tempfile
 import threading
 import time
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.error import HTTPError
@@ -85,6 +85,22 @@ def test_summary(tmp):
         st.conn.close()
 
 
+def test_pace_window(tmp):
+    """Quiet days at the start of a cycle count in the pace denominator, not just busy ones."""
+    st = Store(tmp)
+    try:
+        today = date.today()
+        st.set_config({"reset_day": (today - timedelta(days=6)).day})  # the cycle starts 6 days ago
+        gb = st.gb
+        st.add((today - timedelta(days=2)).isoformat(), 5 * gb, 0)  # four quiet days, then 5 GB a day
+        st.add((today - timedelta(days=1)).isoformat(), 5 * gb, 0)
+        s = st.summary()
+        check(abs(s["avg_daily"] - 10 * gb / 6) <= 1, "summary: quiet days count in the pace window",
+              f"{round(s['avg_daily'])} (cycle {s['cycle_start']})")
+    finally:
+        st.conn.close()
+
+
 def test_monitor(tmp):
     """Only the configured hotspot is counted: everything else records nothing and alerts nothing."""
     st = Store(tmp)
@@ -117,6 +133,23 @@ def test_monitor(tmp):
         check(len(evaluated) == 1, "monitor: alerts run on the hotspot", str(len(evaluated)))
     finally:
         live_mod.get_ssid = orig_ssid
+        st.conn.close()
+
+
+def test_nic_delta(tmp):
+    """A backwards counter only counts as a reset when it truly collapsed; jumps stay rejected."""
+    st = Store(tmp)
+    try:
+        mon = Monitor(st)
+        limit = live_mod.COUNTER_JUMP
+        slide = mon._nic_delta("nic1", (500_000_000, 500_000_000), (600_000_000, 600_000_000), limit)
+        check(slide is None, "nic delta: a re-read correcting a doubling is not credited", str(slide))
+        reset = mon._nic_delta("nic1", (1_000_000, 1_000_000), (10 * 2 ** 30, 2 ** 30), limit)
+        check(reset == (1_000_000, 1_000_000), "nic delta: a collapsed counter restarts from its new total",
+              str(reset))
+        jump = mon._nic_delta("nic1", (3 * 2 ** 30, 0), (0, 0), limit)
+        check(jump is None, "nic delta: an implausible jump in one sample is ignored", str(jump))
+    finally:
         st.conn.close()
 
 
@@ -221,8 +254,12 @@ def main():
         test_settings()
         print("usage summary")
         test_summary(tmp / "home")
+        print("pace window")
+        test_pace_window(tmp / "pace")
         print("monitor")
         test_monitor(tmp / "mon")
+        print("nic delta")
+        test_nic_delta(tmp / "nic")
         print("cli calibrate")
         test_calibrate_cli(tmp / "cli")
         print("settings repair")
