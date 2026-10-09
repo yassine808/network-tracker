@@ -6,7 +6,7 @@ DataGuard is a small Windows-first desktop tool that counts every byte your lapt
 receives while it is tethered to your phone's hotspot, totals it against your billing cycle, warns
 you before you run out, and can cut the internet when a daily cap is hit.
 
-**[⬇ Download DataGuard 1.2.1](https://github.com/yassine808/network-tracker/releases/latest)**
+**[⬇ Download DataGuard 1.3.0](https://github.com/yassine808/network-tracker/releases/latest)**
 — per-user install, no admin rights, no Python required (the installer bundles everything).
 Prefer to build it yourself? See [Install](#install) below.
 
@@ -27,7 +27,7 @@ Prefer to build it yourself? See [Install](#install) below.
   `http://127.0.0.1:8787`, no accounts, no cloud, **no outbound internet connections at all** —
   the installed app firewall-seals its own interpreter so it physically cannot phone home.
 
-Current version: **1.2.1** (`dataguard/__init__.py`)
+Current version: **1.3.0** (`dataguard/__init__.py`)
 
 ---
 
@@ -54,7 +54,7 @@ Current version: **1.2.1** (`dataguard/__init__.py`)
 
 1. Download `DataGuard-Setup-v<version>.exe` from the
    [GitHub Releases page](https://github.com/yassine808/network-tracker/releases)
-   (current: `DataGuard-Setup-v1.2.1.exe`).
+   (current: `DataGuard-Setup-v1.3.0.exe`).
 2. Run it. It installs per-user into `%LOCALAPPDATA%\Programs\DataGuard` — **no admin rights needed**.
 3. Finish the wizard. **"Start DataGuard now"** is pre-checked, so DataGuard starts and opens the
    dashboard. Auto-start at every login is set up for you (no checkbox to miss). Silent installs
@@ -476,7 +476,7 @@ shutdown), so the disk sees very little I/O. Rows older than 400 days are pruned
 ```mermaid
 flowchart LR
     subgraph DEV["Developer"]
-        T["git tag v1.2.1<br/>(must equal __version__)"]
+        T["git tag v1.3.0<br/>(must equal __version__)"]
     end
 
     subgraph CI["GitHub Actions — windows-latest"]
