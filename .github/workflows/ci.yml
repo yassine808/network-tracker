@@ -45,7 +45,7 @@ jobs:
           node-version: "22"
       - name: Install the one runtime package
         run: pip install psutil
-      - name: Run the suite (35 checks, ends with node --check of the dashboard script)
+      - name: Run the suite (39 checks, ends with node --check of the dashboard script)
         run: python tests/smoke.py
 
   security:

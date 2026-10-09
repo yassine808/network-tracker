@@ -200,12 +200,14 @@ python dataguard.py --home D:\portable-dg run
 - **Alerts** at 50/75/90/100 % (configurable), when today's allowance is reached, when pace says
   you'll run out early, and when traffic exceeds the burst threshold (default 150 MB/min).
 - **Kill switch.** If today's total on the configured hotspot passes **10 GB**, DataGuard adds a
-  Windows Firewall rule blocking all outbound internet while keeping loopback and the local subnet
-  (the dashboard and printer keep working). It lifts: at midnight, when usage drops back under the
-  cap, when you leave the hotspot, or when you press *Restore internet*. The pre-cut warning can be
-  *ignored for today*.
-- **Counter sanity.** Jumps over 2 GB per sample (a doubled Windows counter) are rejected; a counter
-  that goes backwards (adapter restart) is re-based to zero instead of subtracted.
+  Windows Firewall rule blocking **all** outbound traffic while it lasts - internet, loopback and
+  the local network, so the dashboard cannot load during a cut. It lifts: at midnight, when usage
+  drops back under the cap, when you leave the hotspot (coming back re-evaluates the cap), or when
+  you press *Restore internet* (tray or dashboard warning). The pre-cut warning can be *ignored for
+  today*.
+- **Counter sanity.** Implausible jumps (a doubled Windows counter, ceiling scaled with the actual
+  sample window) are rejected; a counter that collapsed backwards (adapter restart) restarts from
+  what it re-accumulated, while a small backwards re-read is ignored, not credited.
 
 ---
 
@@ -312,7 +314,7 @@ flowchart TD
     G --> H["Start AppTracker thread<br/>(re-apply remembered blocks)"]
     H --> I["Start Monitor thread"]
     I --> J{"installed layout?<br/>(own python.exe)"}
-    J -->|yes| K["Seal thread: firewall-block<br/>python*.exe from internet,<br/>loopback allowed"]
+    J -->|yes| K["Seal thread: firewall-block<br/>python*.exe from<br/>all outbound traffic"]
     J -->|no| L["skip (dev Python is shared)"]
     K --> M["shell.run(): tray icon +<br/>pywebview window (or browser)"]
     L --> M
@@ -381,9 +383,10 @@ stateDiagram-v2
     CUT --> COUNTING: midnight (new killday)<br/>or "Restore internet"
 
     note right of CUT
-      Rules: DataGuard-Internet-Cutoff (block out)
-      + DataGuard-Allow-Local (allow 127.0.0.1,
-      localsubnet → dashboard still works)
+      Rule: DataGuard-Internet-Cutoff (block all
+      outbound). No allow carve-out: an explicit
+      block beats a conflicting allow, so the
+      dashboard is unreachable until restored.
     end note
 ```
 
@@ -502,8 +505,10 @@ Local equivalent: `powershell -File installer/build.ps1` (needs Inno Setup 6 —
   at 3 MB).
 - **No outbound connections.** The auto-updater was removed; the only network traffic DataGuard
   generates is loopback to its own dashboard. The installed app additionally firewall-seals its own
-  `python.exe`/`pythonw.exe` (allowing `127.0.0.1` and the local subnet only), so even a future code
-  change could not send anything out.
+  `python.exe`/`pythonw.exe` from **all** outbound traffic, so even a future code change could not
+  send anything out. While sealed the interpreter reaches nothing - its own dashboard server
+  included, so a second CLI copy reports saved data instead of live; the dashboard itself keeps
+  working because the browser/WebView is not sealed.
 - **Firewall changes are explicit.** Whole-PC cut, per-app blocks and the self-seal each go through
   Windows Firewall; a single UAC prompt appears when DataGuard is not already elevated. Reading
   state never prompts.
@@ -559,7 +564,7 @@ Five checks run on every push/PR on `windows-latest` (`.github/workflows/ci.yml`
 |-------|--------------|
 | Lint | `ruff check` — rules pinned in `ruff.toml` (pycodestyle errors, pyflakes, warnings) |
 | Byte-compile | `python -m compileall dataguard dataguard.py` |
-| Smoke tests | `python tests/smoke.py` — 35 checks, ends with `node --check` of the dashboard script |
+| Smoke tests | `python tests/smoke.py` — 39 checks, ends with `node --check` of the dashboard script |
 | Security scan | `bandit -r dataguard` with documented skips for this codebase's patterns (fixed argv, localhost-only `urlopen`) |
 | Dependency audit | `pip-audit` on the pinned requirements; pillow/pystray are excluded until the Python floor reaches 3.10 (see `TO-DO.md`) |
 
