@@ -199,10 +199,14 @@ def test_link_change_refresh(tmp):
         up = {"nic1": SimpleNamespace(isup=True)}
         t = time.time()
         mon.sample(now=t, counters=counters(0, 0), stats=down)  # first reading: learns the link is down
-        mon.sample(now=t + 5, counters=counters(1_000, 0), stats=down)
+        mon.sample(now=t + 3, counters=counters(1_000, 0), stats=down)
         calls.clear()
-        mon.sample(now=t + 10, counters=counters(2_000, 0), stats=up)  # link came back
+        mon.sample(now=t + 4, counters=counters(2_000, 0), stats=up)  # link came back
         check(len(calls) == 1, "monitor: a reconnected link re-reads the Wi-Fi name at once",
+              str(len(calls)))
+        calls.clear()
+        mon.sample(now=t + 15, counters=counters(3_000, 0), stats=up)  # no link change
+        check(len(calls) == 1, "monitor: a readable name is re-checked every 10 s",
               str(len(calls)))
     finally:
         live_mod.get_ssid = orig_ssid

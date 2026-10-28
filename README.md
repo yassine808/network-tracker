@@ -188,6 +188,8 @@ python dataguard.py --home D:\portable-dg run
   fire, no projections are drawn, the firewall is never touched. A sample whose window straddles
   a network change belongs to neither network, so it is not credited; a sample that crosses
   midnight is split by time between the two days (so *today* and the daily cap stay correct).
+  The Wi-Fi name is re-read every 10 s (30 s when Windows hides it, since that probe is slow),
+  and immediately when the link comes back up or the dashboard is opened.
 - **Billing cycle.** `[reset_day of this month, reset_day of next month)`. All totals are recomputed
   from the daily rows on every read — there is no running counter to drift.
 - **Reserve.** `budget = plan × (1 − reserve_pct/100)`. The reserve is shown as part of the plan but

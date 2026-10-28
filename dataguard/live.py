@@ -43,7 +43,8 @@ def _profile_name(ssid):
 
 
 class Monitor:
-    SSID_EVERY = 30  # seconds between Wi-Fi name checks (extra check during big transfers)
+    SSID_EVERY = 30      # seconds between Wi-Fi name checks when the name is unreadable
+    SSID_EVERY_LIVE = 10  # ...and when it is readable: one cheap netsh, and it can change any moment
 
     def __init__(self, store):
         self.store = store
@@ -230,7 +231,12 @@ class Monitor:
         counted = True
         if cfg["ssid"]:
             big = drx + dtx >= 5_000_000
-            if force or now - self.ssid_t >= self.SSID_EVERY or (big and now - self.ssid_t >= 3):
+            # A readable name means netsh answered (cheap): poll it often enough that leaving
+            # the hotspot is noticed in seconds, not half a minute. An unreadable name costs a
+            # PowerShell fallback, so keep that slow - the link-up and dashboard events force
+            # an extra check exactly when a change is likely.
+            every = self.SSID_EVERY_LIVE if self.ssid else self.SSID_EVERY
+            if force or now - self.ssid_t >= every or (big and now - self.ssid_t >= 3):
                 prev_ssid = self.ssid
                 self.ssid, self.ssid_t = get_ssid(), now
                 logging.debug("monitor: Wi-Fi refresh -> %r (was %r, configured %r)",
