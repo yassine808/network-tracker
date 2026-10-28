@@ -185,7 +185,9 @@ python dataguard.py --home D:\portable-dg run
   delta is recorded **only** on that network — the name must match (Windows sometimes saves a
   profile as `Name 2`, which counts as `Name`), or, when Windows won't reveal the name at all,
   the connection must be the pinned interface. Off that network: nothing is recorded, no alerts
-  fire, no projections are drawn, the firewall is never touched.
+  fire, no projections are drawn, the firewall is never touched. A sample whose window straddles
+  a network change belongs to neither network, so it is not credited; a sample that crosses
+  midnight is split by time between the two days (so *today* and the daily cap stay correct).
 - **Billing cycle.** `[reset_day of this month, reset_day of next month)`. All totals are recomputed
   from the daily rows on every read — there is no running counter to drift.
 - **Reserve.** `budget = plan × (1 − reserve_pct/100)`. The reserve is shown as part of the plan but
@@ -206,8 +208,9 @@ python dataguard.py --home D:\portable-dg run
   you press *Restore internet* (tray or dashboard warning). The pre-cut warning can be *ignored for
   today*.
 - **Counter sanity.** Implausible jumps (a doubled Windows counter, ceiling scaled with the actual
-  sample window) are rejected; a counter that collapsed backwards (adapter restart) restarts from
-  what it re-accumulated, while a small backwards re-read is ignored, not credited.
+  sample window) are rejected direction by direction, so a corrupt rx reading never costs the tx
+  bytes that are real. A counter that collapsed backwards (adapter restart) restarts from what it
+  re-accumulated, while a small backwards re-read is ignored, not credited.
 
 ---
 

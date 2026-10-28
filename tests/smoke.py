@@ -9,7 +9,7 @@ import sys
 import tempfile
 import threading
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.error import HTTPError
@@ -128,9 +128,12 @@ def test_monitor(tmp):
         mon.sample(now=t + 22, counters=counters(11_000_000, 1_700_000), stats={})
         today = date.today().isoformat()
         check(mon.counting is True, "monitor: the configured hotspot is counted", str(mon.counting))
+        check(not st.days,
+              "monitor: the window that straddles the network change is not credited", str(st.days))
+        mon.sample(now=t + 33, counters=counters(17_000_000, 2_400_000), stats={})
         check(st.days.get(today) == [6_000_000, 700_000],
               "monitor: only on-network bytes are recorded", str(st.days))
-        check(len(evaluated) == 1, "monitor: alerts run on the hotspot", str(len(evaluated)))
+        check(len(evaluated) == 2, "monitor: alerts run on the hotspot", str(len(evaluated)))
     finally:
         live_mod.get_ssid = orig_ssid
         st.conn.close()
@@ -177,6 +180,35 @@ def test_network_gate(tmp):
         st.conn.close()
 
 
+def test_link_change_refresh(tmp):
+    """A link that comes back up forces an immediate Wi-Fi name check, not a 30 s wait."""
+    st = Store(tmp)
+    orig_ssid = live_mod.get_ssid
+    calls = []
+    try:
+        st.set_config({"ssid": "HOTSPOT", "iface": "nic1"})
+        mon = Monitor(st)
+        mon.check_kill = lambda *a, **k: None
+        mon.check_alerts = lambda *a, **k: None
+        live_mod.get_ssid = lambda: (calls.append(1), "OTHER-NET")[1]
+
+        def counters(rx, tx):
+            return {"nic1": SimpleNamespace(bytes_recv=rx, bytes_sent=tx)}
+
+        down = {"nic1": SimpleNamespace(isup=False)}
+        up = {"nic1": SimpleNamespace(isup=True)}
+        t = time.time()
+        mon.sample(now=t, counters=counters(0, 0), stats=down)  # first reading: learns the link is down
+        mon.sample(now=t + 5, counters=counters(1_000, 0), stats=down)
+        calls.clear()
+        mon.sample(now=t + 10, counters=counters(2_000, 0), stats=up)  # link came back
+        check(len(calls) == 1, "monitor: a reconnected link re-reads the Wi-Fi name at once",
+              str(len(calls)))
+    finally:
+        live_mod.get_ssid = orig_ssid
+        st.conn.close()
+
+
 def test_nic_delta(tmp):
     """A backwards counter only counts as a reset when it truly collapsed; jumps stay rejected."""
     st = Store(tmp)
@@ -190,6 +222,34 @@ def test_nic_delta(tmp):
               str(reset))
         jump = mon._nic_delta("nic1", (3 * 2 ** 30, 0), (0, 0), limit)
         check(jump is None, "nic delta: an implausible jump in one sample is ignored", str(jump))
+        # One direction reset while the other kept counting: the healthy direction counts.
+        mixed = mon._nic_delta("nic1", (1_000_000, 2_000), (10 * 2 ** 30, 1_000), limit)
+        check(mixed == (1_000_000, 1_000),
+              "nic delta: an rx-only reset still credits tx", str(mixed))
+        mixed = mon._nic_delta("nic1", (5_000, 1_000_000), (1_000, 10 * 2 ** 30), limit)
+        check(mixed == (4_000, 1_000_000),
+              "nic delta: a tx-only reset still credits rx", str(mixed))
+        mixed = mon._nic_delta("nic1", (3 * 2 ** 30, 5_000), (0, 0), limit)
+        check(mixed == (0, 5_000),
+              "nic delta: a jump in one direction leaves the other intact", str(mixed))
+    finally:
+        st.conn.close()
+
+
+def test_midnight_split(tmp):
+    """A sample crossing midnight is split by time, so 'today' (and the daily cap) is right."""
+    st = Store(tmp)
+    try:
+        mon = Monitor(st)
+        t0 = datetime(2026, 10, 29, 23, 59, 58).timestamp()
+        mon._record(t0, t0 + 4, 400, 40)  # 2 s before midnight, 2 s after
+        check(st.days.get("2026-10-29") == [200, 20],
+              "usage: bytes before midnight stay on that day", str(st.days))
+        check(st.days.get("2026-10-30") == [200, 20],
+              "usage: bytes after midnight land on the new day", str(st.days))
+        mon._record(t0 + 40, t0 + 44, 900, 90)  # fully inside one day
+        check(st.days.get("2026-10-30") == [1_100, 110],
+              "usage: a same-day sample is not split", str(st.days))
     finally:
         st.conn.close()
 
@@ -301,8 +361,12 @@ def main():
         test_monitor(tmp / "mon")
         print("network gate")
         test_network_gate(tmp / "gate")
+        print("link refresh")
+        test_link_change_refresh(tmp / "link")
         print("nic delta")
         test_nic_delta(tmp / "nic")
+        print("midnight split")
+        test_midnight_split(tmp / "mid")
         print("cli calibrate")
         test_calibrate_cli(tmp / "cli")
         print("settings repair")

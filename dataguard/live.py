@@ -54,6 +54,8 @@ class Monitor:
         self.ssid = None
         self.ssid_t = 0.0
         self.counting = None
+        self.link_up = None               # last seen link state of the counted NIC
+        self.link_changed = False         # True on the sample where that link came back up
         self.last_ui = 0.0
         self.last_burst = 0.0
         self.t_alert = 0.0
@@ -100,17 +102,27 @@ class Monitor:
         if frame is None:
             return
         t0, drx, dtx = frame
-        counted = self._counted(cfg, now, drx, dtx)
+        was_counting = self.counting
+        counted = self._counted(cfg, now, drx, dtx,
+                                force=self.wake.is_set() or self.link_changed)
         self._log_counting(cfg, counted)
-        logging.debug("sample: %s rx=%d tx=%d counted=%s ssid=%s",
-                      self.iface, drx, dtx, counted, self.ssid)
+        # The window that straddles a network change cannot be split between the two
+        # networks: crediting it would bill the old network's bytes to the plan (or the
+        # reverse). Skip that one window; the next one starts clean.
+        straddles = was_counting is not None and counted != was_counting
+        credited = counted and not straddles
+        if straddles:
+            logging.info("monitor: network gate changed during this window; not crediting it "
+                         "(ssid=%r configured=%r)", self.ssid, cfg["ssid"])
+        logging.debug("sample: %s rx=%d tx=%d counted=%s credited=%s ssid=%s",
+                      self.iface, drx, dtx, counted, credited, self.ssid)
 
         with self.store.lock:
-            self.ring.append((t0, now, drx, dtx, counted))
+            self.ring.append((t0, now, drx, dtx, credited))
             while self.ring and self.ring[0][1] < now - 900:
                 self.ring.popleft()
-        if counted and (drx or dtx):
-            self.store.add(date.fromtimestamp(now).isoformat(), drx, dtx)
+        if credited and (drx or dtx):
+            self._record(t0, now, drx, dtx)
             self.check_burst(now)
         if now - self.t_alert >= 10:
             self.t_alert = now
@@ -128,6 +140,12 @@ class Monitor:
         self.iface = want if want != "auto" and want in counters else auto_iface(list(counters), stats, counters)
         if self.iface != prev_iface:
             logging.info("monitor: interface -> %s (configured %s)", self.iface, want)
+        # A link that comes back may be a different Wi-Fi network: re-read the name now
+        # instead of waiting out the cache, so the first bytes after a reconnect are not
+        # billed to the wrong network.
+        up = bool(self.iface and self.iface in stats and stats[self.iface].isup)
+        self.link_changed = self.link_up is not None and up and not self.link_up
+        self.link_up = up
 
         t0, self.t_last = self.t_last, now
         elapsed = now - t0 if t0 is not None else 0
@@ -143,29 +161,76 @@ class Monitor:
         drx, dtx = delta[self.iface]
         return t0, drx, dtx
 
+    def _record(self, t0, now, drx, dtx):
+        """Credit a sample to the calendar day(s) its window really covered.
+
+        Traffic kept only the day it was sampled on, so a window crossing midnight pushed
+        yesterday's bytes into today (and into today's cap/alerts). Split it by time."""
+        if now <= t0:
+            self.store.add(date.fromtimestamp(now).isoformat(), drx, dtx)
+            return
+        first, last = date.fromtimestamp(t0), date.fromtimestamp(now)
+        if first == last:
+            self.store.add(last.isoformat(), drx, dtx)
+            return
+        span = now - t0
+        day, sent_rx, sent_tx = first, 0, 0
+        while day <= last:
+            boundary = min(now, datetime.combine(day + timedelta(days=1), datetime.min.time()).timestamp())
+            f = max(0.0, min(1.0, (boundary - t0) / span))
+            up_rx, up_tx = int(drx * f), int(dtx * f)  # cumulative share through this day
+            take_rx, take_tx = up_rx - sent_rx, up_tx - sent_tx
+            if take_rx or take_tx:
+                self.store.add(day.isoformat(), take_rx, take_tx)
+            sent_rx, sent_tx = up_rx, up_tx
+            day += timedelta(days=1)
+        logging.debug("sample: split %d/%d bytes %s -> %s across midnight", drx, dtx, first, last)
+
     def _nic_delta(self, nic, cur, prev, limit):
-        """One NIC's plausible delta, or None when there is nothing (or a lying counter) to count."""
+        """One NIC's plausible delta, or None when there is nothing (or a lying counter) to count.
+
+        The two directions are judged separately: an adapter reset often clears rx only (or
+        tx only), and dropping the healthy direction with it silently under-counted every
+        other sample after the reset. A value that cannot be traffic in this window is still
+        rejected direction by direction, never credited."""
         if prev is None:
             return None
-        fwd = tuple(a - b for a, b in zip(cur, prev))
-        if min(fwd) >= 0:
-            if max(fwd) <= limit:
-                return fwd
-            logging.warning("Implausible counter jump on %s ignored (prev=%s cur=%s)", nic, prev, cur)
-        elif max(cur) * 4 < max(prev):  # backwards AND collapsed: a reset, not a corrected re-read
-            return cur  # a reset counter: count from what it has re-accumulated
-        elif max(cur) > limit:  # back near an old huge value: the twin of a doubled reading
-            logging.warning("Implausible counter re-read on %s ignored (prev=%s cur=%s)", nic, prev, cur)
-        else:
-            logging.warning("Implausible counter slide on %s ignored (prev=%s cur=%s)", nic, prev, cur)
+        out = []
+        plausible = rejected = False
+        for c, p in zip(cur, prev):
+            d = c - p
+            if d >= 0:
+                if d > limit:
+                    logging.warning("Implausible counter jump on %s ignored direction "
+                                    "(prev=%s cur=%s)", nic, p, c)
+                    out.append(0)
+                    rejected = True
+                else:
+                    out.append(d)
+                    plausible = plausible or d > 0
+            elif c * 4 < p:  # backwards AND collapsed: a reset, not a corrected re-read
+                out.append(c)  # count from what the counter has re-accumulated
+                plausible = True
+            else:
+                # back near an old value (a doubled reading corrected) or too big for this
+                # window: neither is traffic we can trust
+                logging.warning("Implausible counter re-read on %s ignored direction "
+                                "(prev=%s cur=%s)", nic, p, c)
+                out.append(0)
+                rejected = True
+        if plausible or not rejected:  # idle readings still tick the ring; nothing else does
+            return tuple(out)
         return None
 
-    def _counted(self, cfg, now, drx, dtx):
-        """True when this sample counts (configured hotspot in use; the toggle may veto it)."""
+    def _counted(self, cfg, now, drx, dtx, force=False):
+        """True when this sample counts (configured hotspot in use; the toggle may veto it).
+
+        `force` re-reads the Wi-Fi name even inside the cache window: a freshly opened
+        dashboard is exactly when the user expects the network state to be current."""
         counted = True
         if cfg["ssid"]:
             big = drx + dtx >= 5_000_000
-            if now - self.ssid_t >= self.SSID_EVERY or (big and now - self.ssid_t >= 3):
+            if force or now - self.ssid_t >= self.SSID_EVERY or (big and now - self.ssid_t >= 3):
                 prev_ssid = self.ssid
                 self.ssid, self.ssid_t = get_ssid(), now
                 logging.debug("monitor: Wi-Fi refresh -> %r (was %r, configured %r)",
