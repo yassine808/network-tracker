@@ -78,12 +78,17 @@ class Monitor:
         if not want:
             return True
         ssid = self.ssid or ""
-        if ssid and (ssid == want or _profile_name(ssid) == want):
-            return True  # "Meryem 2" (Windows adds a number to repeated profiles) is still "Meryem"
-        if self.iface and want == self.iface:
-            return True  # the user pinned the connection itself (name unreadable on this system)
-        if not ssid and WIFI.search(self.iface or ""):
-            return None
+        if ssid:
+            # A readable name alone decides: both sides are normalized so a profile saved as
+            # "Meryem 2" still matches "Meryem" - in either direction, whichever one the user
+            # pinned. A different readable name is a definite "no": the interface fallback
+            # below must never rescue it, or every other Wi-Fi network would be counted.
+            return ssid == want or _profile_name(ssid) == _profile_name(want)
+        if WIFI.search(self.iface or ""):
+            # The name is unreadable on a Wi-Fi adapter. If the pin is the interface itself
+            # (the dashboard's "Use current Wi-Fi" fallback), trust the adapter; otherwise
+            # there is nothing to compare against, so it can't be judged.
+            return True if want == self.iface else None
         return False
 
     def sample(self, now=None, counters=None, stats=None):

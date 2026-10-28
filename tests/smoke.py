@@ -136,6 +136,47 @@ def test_monitor(tmp):
         st.conn.close()
 
 
+def test_network_gate(tmp):
+    """A readable Wi-Fi name alone decides; the interface pin only stands in when it is hidden."""
+    st = Store(tmp)
+    try:
+        mon = Monitor(st)
+        mon.iface = "Wi-Fi"
+        st.set_config({"ssid": "HOTSPOT", "iface": "Wi-Fi"})
+        mon.ssid = "HOTSPOT"
+        check(mon.on_network() is True, "gate: the configured network counts", str(mon.on_network()))
+        mon.ssid = "Neighbours-Network"
+        check(mon.on_network() is False,
+              "gate: a readable different network never counts, even when the pin is an interface",
+              str(mon.on_network()))
+        st.set_config({"ssid": "Wi-Fi"})  # Windows hid the name: dashboard pinned the interface
+        mon.ssid = None
+        check(mon.on_network() is True, "gate: the interface pin counts while the name is unreadable",
+              str(mon.on_network()))
+        mon.ssid = "Neighbours-Network"
+        check(mon.on_network() is False,
+              "gate: a readable name overrides a stale interface pin", str(mon.on_network()))
+        mon.ssid = None
+        st.set_config({"ssid": "HOTSPOT"})
+        check(mon.on_network() is None, "gate: an unreadable name on Wi-Fi is trusted, not judged",
+              str(mon.on_network()))
+        # Windows appends a number to repeated profiles: normalize the configured side too
+        st.set_config({"ssid": "Meryem 2"})
+        mon.ssid = "Meryem"
+        check(mon.on_network() is True, "gate: Python-side numeric suffix still matches",
+              str(mon.on_network()))
+        st.set_config({"ssid": "Meryem"})
+        mon.ssid = "Meryem 2"
+        check(mon.on_network() is True, "gate: reported numeric suffix still matches",
+              str(mon.on_network()))
+        st.set_config({"ssid": "HOTSPOT", "iface": "Ethernet"})
+        mon.iface, mon.ssid = "Ethernet", ""
+        check(mon.on_network() is False, "gate: a wired interface with a name is not the hotspot",
+              str(mon.on_network()))
+    finally:
+        st.conn.close()
+
+
 def test_nic_delta(tmp):
     """A backwards counter only counts as a reset when it truly collapsed; jumps stay rejected."""
     st = Store(tmp)
@@ -258,6 +299,8 @@ def main():
         test_pace_window(tmp / "pace")
         print("monitor")
         test_monitor(tmp / "mon")
+        print("network gate")
+        test_network_gate(tmp / "gate")
         print("nic delta")
         test_nic_delta(tmp / "nic")
         print("cli calibrate")
