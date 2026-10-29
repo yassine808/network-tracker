@@ -206,8 +206,12 @@ def test_link_change_refresh(tmp):
               str(len(calls)))
         calls.clear()
         mon.sample(now=t + 15, counters=counters(3_000, 0), stats=up)  # no link change
-        check(len(calls) == 1, "monitor: a readable name is re-checked every 10 s",
+        check(len(calls) == 1, "monitor: a readable name is re-checked every 5 s",
               str(len(calls)))
+        calls.clear()
+        mon.sample(now=t + 21, counters=counters(4_000, 0), stats=up)
+        check(len(calls) == 1,
+              "monitor: the cached name is never older than one idle sample", str(len(calls)))
     finally:
         live_mod.get_ssid = orig_ssid
         st.conn.close()
@@ -237,6 +241,67 @@ def test_nic_delta(tmp):
         check(mixed == (0, 5_000),
               "nic delta: a jump in one direction leaves the other intact", str(mixed))
     finally:
+        st.conn.close()
+
+
+def test_overview_total(tmp):
+    """The Overview total equals the bytes the counted NIC really moved - to the byte.
+
+    This is the number everything else is judged against (alerts, allowance, the 10 GB
+    cut), so it is checked end to end through sample(): steady traffic, an idle window, a
+    long gap between readings, an adapter reset, and (below) a network change.
+    """
+    st = Store(tmp)
+    orig_ssid = live_mod.get_ssid
+    try:
+        st.set_config({"ssid": "", "iface": "nic1", "burst_mb_per_min": 0})
+        mon = Monitor(st)
+        mon.check_kill = lambda *a, **k: None
+        mon.check_alerts = lambda *a, **k: None
+        live_mod.get_ssid = lambda: "HOTSPOT"
+        today = date.today().isoformat()
+
+        def counters(rx, tx):
+            return {"nic1": SimpleNamespace(bytes_recv=rx, bytes_sent=tx)}
+
+        t, rx, tx = time.time(), 0, 0
+        mon.sample(now=t, counters=counters(rx, tx), stats={})  # baseline only
+        steps = [(1, 1_000, 100), (1, 0, 0), (5, 5_000_000, 700_000),
+                 (12, 250_000, 0), (1, 3, 1), (5, 40_000_000, 2_000_000)]
+        want = [0, 0]
+        for dt, drx, dtx in steps:
+            t += dt
+            rx, tx = rx + drx, tx + dtx
+            want = [want[0] + drx, want[1] + dtx]
+            mon.sample(now=t, counters=counters(rx, tx), stats={})
+        check(st.days.get(today) == want,
+              "overview: the total matches the NIC counter to the byte",
+              f"{st.days.get(today)} != {want}")
+
+        # An adapter restart: the counter falls back to zero and re-accumulates from there.
+        rx, tx = 0, 0
+        t += 5
+        mon.sample(now=t, counters=counters(rx, tx), stats={})
+        rx, tx = 900_000, 50_000
+        t += 5
+        mon.sample(now=t, counters=counters(rx, tx), stats={})
+        check(st.days.get(today) == [want[0] + 900_000, want[1] + 50_000],
+              "overview: bytes reused after an adapter reset are still counted",
+              str(st.days.get(today)))
+
+        # Off the configured hotspot: the counter keeps moving, the total must not.
+        st.set_config({"ssid": "HOTSPOT"})
+        live_mod.get_ssid = lambda: "SOMEONE-ELSE"
+        before = list(st.days.get(today) or [0, 0])
+        for dt, drx in ((1, 4_000_000), (5, 4_000_000), (5, 4_000_000)):
+            t += dt
+            rx += drx
+            mon.sample(now=t, counters=counters(rx, tx), stats={})
+        check(st.days.get(today) == before,
+              "overview: another network's bytes never reach the total",
+              f"{st.days.get(today)} != {before}")
+    finally:
+        live_mod.get_ssid = orig_ssid
         st.conn.close()
 
 
@@ -369,6 +434,8 @@ def main():
         test_link_change_refresh(tmp / "link")
         print("nic delta")
         test_nic_delta(tmp / "nic")
+        print("overview total")
+        test_overview_total(tmp / "total")
         print("midnight split")
         test_midnight_split(tmp / "mid")
         print("cli calibrate")

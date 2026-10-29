@@ -44,7 +44,9 @@ def _profile_name(ssid):
 
 class Monitor:
     SSID_EVERY = 30      # seconds between Wi-Fi name checks when the name is unreadable
-    SSID_EVERY_LIVE = 10  # ...and when it is readable: one cheap netsh, and it can change any moment
+    SSID_EVERY_LIVE = 5  # ...and when it is readable: one cheap netsh per sample, so the cached
+                         # name is never older than the window it decides (a stale name billed up
+                         # to two windows of the next network's traffic to the plan)
 
     def __init__(self, store):
         self.store = store

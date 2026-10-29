@@ -188,8 +188,9 @@ python dataguard.py --home D:\portable-dg run
   fire, no projections are drawn, the firewall is never touched. A sample whose window straddles
   a network change belongs to neither network, so it is not credited; a sample that crosses
   midnight is split by time between the two days (so *today* and the daily cap stay correct).
-  The Wi-Fi name is re-read every 10 s (30 s when Windows hides it, since that probe is slow),
-  and immediately when the link comes back up or the dashboard is opened.
+  The Wi-Fi name is re-read every 5 s (30 s when Windows hides it, since that probe is slow),
+  so the cached name is never older than the window it decides; it is also read immediately
+  when the link comes back up or the dashboard is opened.
 - **Billing cycle.** `[reset_day of this month, reset_day of next month)`. All totals are recomputed
   from the daily rows on every read — there is no running counter to drift.
 - **Reserve.** `budget = plan × (1 − reserve_pct/100)`. The reserve is shown as part of the plan but
@@ -340,7 +341,7 @@ flowchart TD
     Q1 --> G
     Q2 --> STOP["stop here"]
     G -->|no| CNT["counted = true"]
-    G -->|yes| R["read SSID<br/>(every 30 s, or 3 s during big transfers)"]
+    G -->|yes| R["read SSID<br/>(5 s when readable, 30 s when hidden,<br/>3 s during big transfers)"]
     R --> M{"name matches,<br/>or name hidden and<br/>same connection?"}
     M -->|yes| CNT
     M -->|no| NC["counted = false"]
