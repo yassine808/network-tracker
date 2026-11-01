@@ -43,5 +43,9 @@ pip-audit. A `v*` tag builds the zip + `setup.exe` via `installer/build.ps1`.
 
 - Stay inside the project root; the DB and logs at `%APPDATA%\DataGuard\` are read-only
   unless the task is explicitly about data repair.
+- **Restart the app after every change to `dashboard.html`.** `frontend.py` reads the page
+  into `PAGE` at import, so a running window keeps serving the copy it loaded at startup.
+  Stop the listener on 8787, relaunch `python dataguard.py run --open`, and confirm the
+  served page carries a marker unique to the change.
 - Do not `git add .`, commit, tag, or push unless asked.
 - `build/`, `dist/`, `__pycache__/`, `.ruff_cache/` are generated — never hand-edit.

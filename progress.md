@@ -49,3 +49,28 @@
   (Manrope range widened to 300..800 in this pass).
 - Next: the running window (PID 17572) still serves the page it imported at 04:17:56, so
   it shows the previous design until the app is relaunched.
+
+### 2026-11-01 — third dashboard pass pushed
+- Goal: get the top-bar / single-screen overview redesign onto the remote.
+- Done: rail removed again, top bar restored; overview became a single-screen grid (cycle
+  ring left, today + live right); live chart rebuilt on a 60-sample sliding window with
+  separate download/upload panes. Committed as `aa9338d` and pushed.
+- Verified: `tests/smoke.py` exit 0; after relaunch `/` served the new markers
+  (`id="top"`, `class="ov"`, `id="ringbox"`, no `id="rail"`).
+- Next: the overview still scrolled ~45px at 1100x740 because `[data-p="main"]` carried
+  `min-height:600px` on top of the hero and gaps.
+
+### 2026-11-01 — overview fits one screen; 30-day bars stop re-rendering
+- Goal: "show everything without scrolling, compact", then fix "last 30 days keeps
+  re-showing every second".
+- Done: dropped the 600px floor, tightened the vertical rhythm (top bar 62→56, main
+  padding 16→14, hero text 22/13.5→20/12.5, panel padding 14/18 for overview panels, ring
+  clamp 128–236px, `.big` 44→36, `#tbar` 3vh, `#hm` 5vh). Rewrote `heat()`: the DOM is
+  built once per date list and later polls only patch bar height/class, so the `grow`
+  animation no longer restarts every second; the chart peak now tracks usage instead of
+  the daily allowance, so a big plan no longer flattens every bar.
+- Verified: window capture at 1100x740 shows the whole overview, no scrollbar; two
+  captures 3 s apart are pixel-identical in the 30-day panel (0 diff pixels); today's bar
+  renders full height (1016 blue pixels). `tests/smoke.py` exit 0.
+- Next: `dataguard/dashboard.html` is modified but uncommitted. The plan is currently
+  set to 999 GB (set during testing) — restore it to the real plan if that was a slip.

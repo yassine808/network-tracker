@@ -21,7 +21,7 @@ background:radial-gradient(900px 500px at 8% -8%,rgba(40,80,220,.13),transparent
 #app{display:flex;flex-direction:column;height:100vh}
 
 /* ---------- top bar ---------- */
-#top{flex:none;display:flex;align-items:center;gap:22px;height:62px;padding:0 24px;border-bottom:1px solid var(--line);background:rgba(0,0,0,.6);position:relative;z-index:10}
+#top{flex:none;display:flex;align-items:center;gap:22px;height:56px;padding:0 24px;border-bottom:1px solid var(--line);background:rgba(0,0,0,.6);position:relative;z-index:10}
 .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:17px;letter-spacing:-.03em}
 .brand svg{width:26px;height:26px;flex:none;filter:drop-shadow(0 0 10px rgba(61,107,255,.6))}
 nav{position:relative;display:flex;gap:2px;padding:4px;border-radius:13px;background:var(--panel);border:1px solid var(--line)}
@@ -50,11 +50,11 @@ nav{position:relative;display:flex;gap:2px;padding:4px;border-radius:13px;backgr
 .sys{font:11.5px var(--mono);color:var(--faint);white-space:nowrap}
 .sys b{color:var(--mute);font-weight:600}
 
-main{flex:1;min-height:0;overflow-y:auto;padding:16px 24px;display:flex;flex-direction:column}
+main{flex:1;min-height:0;overflow-y:auto;padding:14px 24px;display:flex;flex-direction:column}
 .wrap{flex:1 0 auto;width:100%;max-width:1320px;margin:0 auto;display:flex;flex-direction:column}
 [data-p]{display:grid;gap:16px;align-content:start}
 [data-p][hidden]{display:none}
-[data-p="main"]:not([hidden]){display:flex;flex-direction:column;gap:14px;flex:1;min-height:600px}
+[data-p="main"]:not([hidden]){display:flex;flex-direction:column;gap:12px;flex:1;min-height:0}
 ::-webkit-scrollbar{width:10px}
 ::-webkit-scrollbar-thumb{background:var(--line2);border-radius:99px;border:2px solid #000}
 :focus-visible{outline:2px solid var(--acc2);outline-offset:2px;border-radius:6px}
@@ -80,26 +80,27 @@ h2 em{font-style:normal;font-weight:500;font-size:12.5px;color:var(--faint);marg
 .fx{animation:fx .45s var(--ease)}
 
 /* ---------- status ---------- */
-.hero{--hc:var(--acc);flex:none;display:flex;align-items:center;gap:16px;padding:0 2px}
+.hero{--hc:var(--acc);flex:none;display:flex;align-items:center;gap:12px;padding:0 2px}
 .hero[data-lvl="ok"]{--hc:var(--ok)}.hero[data-lvl="warn"]{--hc:var(--warn)}.hero[data-lvl="bad"]{--hc:var(--bad)}
 .hdot{position:relative;width:12px;height:12px;border-radius:50%;background:var(--hc);box-shadow:0 0 18px var(--hc);flex:none;transition:background .4s,box-shadow .4s}
 .hdot::after{content:"";position:absolute;inset:0;border-radius:50%;border:2px solid var(--hc);animation:halo 2.6s ease-out infinite}
 .htxt{min-width:0}
-.htxt h1{font-size:22px;font-weight:800;letter-spacing:-.03em;line-height:1.2}
-.htxt p{margin:2px 0 0;color:var(--mute);font-size:13.5px}
+.htxt h1{font-size:20px;font-weight:800;letter-spacing:-.03em;line-height:1.2}
+.htxt p{margin:1px 0 0;color:var(--mute);font-size:12.5px}
 #killBox{display:flex;align-items:center;gap:14px;flex:none;border-color:color-mix(in srgb,var(--bad) 55%,var(--line));background:color-mix(in srgb,var(--bad) 9%,#000)}
 #killBox[hidden]{display:none}
 
 /* ---------- overview grid: everything on one screen ---------- */
-.ov{flex:1;min-height:0;display:grid;grid-template-columns:minmax(320px,350px) minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:14px}
-.rcol{display:flex;flex-direction:column;gap:14px;min-height:0;min-width:0}
+.ov{flex:1;min-height:0;display:grid;grid-template-columns:minmax(300px,330px) minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:12px}
+.rcol{display:flex;flex-direction:column;gap:12px;min-height:0;min-width:0}
+.ov .panel{padding:14px 18px}
 
 /* ---------- this cycle ring ---------- */
 .cyc{display:flex;flex-direction:column;min-height:0}
 .pinfo{font-size:12.5px;color:var(--mute);font-weight:500}
 .pinfo b{color:var(--ink);font-weight:800}
-.cbody{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px}
-.ringbox{--rs:clamp(150px,calc(100vh - 380px),280px);--rc:var(--ok);width:var(--rs);height:var(--rs);position:relative;flex:none}
+.cbody{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
+.ringbox{--rs:clamp(128px,30vh,236px);--rc:var(--ok);width:var(--rs);height:var(--rs);position:relative;flex:none}
 .ringbox::before{content:"";position:absolute;inset:-4%;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--rc) 12%,transparent),transparent 68%);pointer-events:none}
 .ringbox svg{position:relative;width:100%;height:100%;display:block;overflow:visible}
 .rtrack{fill:none;stroke:var(--line);stroke-width:9}
@@ -117,19 +118,19 @@ h2 em{font-style:normal;font-weight:500;font-size:12.5px;color:var(--faint);marg
 #remu{font-size:calc(var(--rs)*.08);color:var(--mute);font-style:normal;font-weight:600}
 #remEdit{border:0;background:none;color:var(--faint);cursor:pointer;font-size:12px;padding:0 2px}
 #remEdit:hover{color:var(--acc2);background:none;border:0}
-.cmeta{display:flex;gap:34px;justify-content:center}
+.cmeta{display:flex;gap:26px;justify-content:center}
 .cmeta div>span:first-child{display:block;font-size:12px;color:var(--mute)}
-.cmeta b{font-size:21px;font-weight:800;letter-spacing:-.03em}
+.cmeta b{font-size:19px;font-weight:800;letter-spacing:-.03em}
 .cmeta small{display:flex;gap:4px;align-items:center;font-size:12px;color:var(--mute)}
 #planGb{width:4.6em;padding:1px 6px;border-radius:7px;font-size:12px;text-align:right}
 
 /* ---------- today ---------- */
-.today{flex:none;display:grid;grid-template-columns:210px 1fr;gap:28px;align-items:center}
+.today{flex:none;display:grid;grid-template-columns:186px 1fr;gap:20px;align-items:center}
 .tl{display:grid;gap:2px}
 .tag{display:inline-block;font-size:12px;font-weight:700;padding:2px 11px;border-radius:99px;background:color-mix(in srgb,currentColor 13%,transparent);border:1px solid color-mix(in srgb,currentColor 30%,transparent);color:var(--mute)}
 .tag.ok{color:var(--ok)}.tag.bad{color:var(--bad)}
-.big{font:200 44px/1.1 var(--f);letter-spacing:-.05em}
-#tbar{display:flex;gap:3px;height:clamp(24px,4vh,34px)}
+.big{font:200 36px/1.1 var(--f);letter-spacing:-.05em}
+#tbar{display:flex;gap:3px;height:clamp(18px,3vh,28px)}
 .seg{flex:1;border-radius:4px;background:color-mix(in srgb,var(--z) 11%,#0a0f1c);transition:background .4s,box-shadow .4s}
 .seg.z1{--z:var(--ok)}.seg.z2{--z:var(--warn)}.seg.z3{--z:var(--bad)}
 .seg.on{background:var(--z);box-shadow:0 0 12px -2px var(--z)}
@@ -148,7 +149,7 @@ h2 em{font-style:normal;font-weight:500;font-size:12.5px;color:var(--faint);marg
 .tbtn[hidden]{display:none}
 
 /* ---------- live traffic ---------- */
-.live{flex:1;min-height:0;display:flex;flex-direction:column;padding:14px 18px 10px;overflow:hidden}
+.live{flex:1;min-height:0;display:flex;flex-direction:column;padding:12px 16px 8px;overflow:hidden}
 .lhead{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .lt{font-size:14px;font-weight:700;display:flex;align-items:center;gap:9px}
 .lt::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 9px var(--ok);animation:tblink 2s ease-in-out infinite}
@@ -161,7 +162,7 @@ h2 em{font-style:normal;font-weight:500;font-size:12.5px;color:var(--faint);marg
 .rate small{font-size:11px;color:var(--faint)}
 .rate small em{font-style:normal;color:var(--mute)}
 #nc{margin-left:auto;font-size:12px;color:var(--warn)}
-#cvw{flex:1;min-height:90px;position:relative;margin-top:8px;cursor:crosshair}
+#cvw{flex:1;min-height:64px;position:relative;margin-top:6px;cursor:crosshair}
 #cv{position:absolute;inset:0;width:100%;height:100%;display:block}
 #tip{position:absolute;top:4px;left:0;z-index:3;min-width:150px;padding:8px 12px;border-radius:12px;background:rgba(2,4,10,.95);border:1px solid var(--line2);box-shadow:0 18px 40px -12px #000;font-size:12px;pointer-events:none}
 #tip[hidden]{display:none}
@@ -173,7 +174,7 @@ h2 em{font-style:normal;font-weight:500;font-size:12.5px;color:var(--faint);marg
 
 /* ---------- 30 days ---------- */
 .hist{flex:none}
-#hm{position:relative;display:flex;gap:4px;height:clamp(40px,7vh,68px);align-items:stretch;margin:18px 0 8px}
+#hm{position:relative;display:flex;gap:4px;height:clamp(30px,5vh,54px);align-items:stretch;margin:10px 0 6px}
 .hb{flex:1;display:flex;align-items:flex-end;border-radius:4px;position:relative}
 .hb:hover{background:rgba(255,255,255,.04)}
 .hb i{display:block;width:100%;border-radius:4px 4px 1px 1px;background:linear-gradient(180deg,var(--acc2),var(--acc));transform-origin:bottom;animation:grow .7s var(--ease) both;animation-delay:calc(var(--n)*18ms + .3s)}
@@ -699,32 +700,38 @@ const mainEl = document.querySelector('[data-p="main"]'), appsPane = document.qu
 (function loop() { requestAnimationFrame(loop); if (document.hidden || mainEl.hidden) return; drawChart(); })();
 
 /* ---- 30-day bars ---- */
-let hmKey = "";
+let hmDays = "", hmCols = [], hmLim = null;
 function heat(hist, allow) {
-  const key = JSON.stringify(hist) + "|" + allow;
-  if (key === hmKey) { return; } hmKey = key;
-  const box = $("#hm"); box.replaceChildren();
-  const peak = Math.max(...hist.map(h => h.b), allow || 0, 1);
+  const box = $("#hm");
+  const days = hist.map(h => h.d).join(",") + "|" + (allow > 0 ? 1 : 0);
+  if (days !== hmDays) {
+    hmDays = days;
+    hmCols = hist.map((h, i) => {
+      const col = mk("div", "hb" + (i === hist.length - 1 ? " today" : ""));
+      const bar = mk("i");
+      bar.style.setProperty("--n", String(i));
+      col.append(bar);
+      col.onmouseenter = () => txt("#hmhover", col.title);
+      col.onmouseleave = () => txt("#hmhover", "Hover a day for details");
+      return col;
+    });
+    hmLim = allow > 0 ? mk("div", "hlim") : null;
+    if (hmLim) { hmLim.append(mk("span", "", "daily limit")); }
+    box.replaceChildren(...hmCols, ...(hmLim ? [hmLim] : []));
+  }
+  const peak = Math.max(...hist.map(h => h.b), 1);
   let over = 0, total = 0;
   hist.forEach((h, i) => {
-    const col = mk("div", "hb" + (i === hist.length - 1 ? " today" : ""));
     const isOver = allow > 0 && h.b > allow;
     if (isOver) over++;
     total += h.b;
-    const bar = mk("i", isOver ? "over" : (h.b > 0 ? "" : "z"));
-    bar.style.setProperty("--n", String(i));
+    const col = hmCols[i], bar = col.firstChild;
+    col.className = "hb" + (i === hist.length - 1 ? " today" : "");
+    bar.className = isOver ? "over" : (h.b > 0 ? "" : "z");
     bar.style.height = (h.b > 0 ? Math.max(5, h.b / peak * 100) : 3) + "%";
-    col.append(bar);
-    const label = dstr(h.d) + " · " + sz(h.b) + (isOver ? " (over limit)" : "");
-    col.title = label;
-    col.onmouseenter = () => txt("#hmhover", label);
-    col.onmouseleave = () => txt("#hmhover", "Hover a day for details");
-    box.appendChild(col);
+    col.title = dstr(h.d) + " · " + sz(h.b) + (isOver ? " (over limit)" : "");
   });
-  if (allow > 0) {
-    const ln = mk("div", "hlim"); ln.style.bottom = Math.min(100, allow / peak * 100) + "%";
-    ln.append(mk("span", "", "daily limit")); box.appendChild(ln);
-  }
+  if (hmLim) { hmLim.style.bottom = Math.min(100, allow / peak * 100) + "%"; }
   const pk = hist.reduce((m, h) => h.b > m.b ? h : m, hist[0] || {b: 0, d: ""});
   txt("#stAvg", sz(total / Math.max(hist.length, 1)));
   txt("#stPeak", pk.b ? sz(pk.b) + " · " + dstr(pk.d) : "-");
