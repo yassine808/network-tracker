@@ -3,6 +3,7 @@
 ## Plan
 - [x] Find why the Apps rows and the Overview disagree, and close the gap for good
 - [x] Make short-lived processes land on their own real name, not "pid N"
+- [x] Ship 1.4.0: bump, pass all four gates locally, tag, publish the exe
 - [ ] (nothing in flight — awaiting next task)
 
 ## Log
@@ -159,3 +160,29 @@
   still billed to the process that really sends it — the client's own socket never touches a
   wire; pairing a local proxy's upstream connections to its clients is not something ETW
   exposes.
+
+### 2026-11-01 — 1.4.0 released
+- Goal: cut a new installer (`DataGuard-Setup-v<version>.exe`) and publish it to GitHub
+  Releases.
+- Done: bumped `dataguard/__init__.py` to 1.4.0 and the three README references (download
+  link, current-version line, release-pipeline diagram) in `d88611c`; committed the accuracy
+  probe (`tests/probe.py`) and its recorded run (`tests/probe.json`) alongside, at Yassine's
+  request. Tagged `v1.4.0`, pushed `main` + tag.
+- Failure and fix: the first Release run (`41302599917`) failed in the bandit job — four
+  `B110 try_except_pass` findings at `apps.py:347`, `apps.py:1009`, `netwatch.py:403`,
+  `netwatch.py:409`, all from `e656ae3`. That CI failure predates this session (the 11:31 run
+  on `main` failed the same way) and was invisible locally because **bandit is not installed
+  on this machine** — only the three AGENTS.md gates were being run. The four sites now log
+  at debug with the traceback instead of swallowing the error (`a736e3b`), which is also what
+  "fail loudly" asks for. Tag moved to that commit (deleted remote tag, re-pushed; no release
+  had been published yet).
+- Verified: locally — `python tests/smoke.py` exit 0 (70 checks), `ruff check dataguard/
+  dataguard.py` clean, `compileall` clean, and `bandit -r dataguard -q -s
+  B104,B310,B404,B603,B607` exit 0 with bandit 1.8.6 installed (the CI pin) after reproducing
+  the same four findings first. On GitHub — Release run `41302891356` success (5 checks, tag
+  == `__version__`, zip + setup.exe built), CI run `41302881328` on `main` success, release
+  `v1.4.0` published with `DataGuard-Setup-v1.4.0.exe` (13.17 MB) and `dataguard-v1.4.0.zip`.
+- Note: the debug lines land below the default log level, so a normal run records nothing new.
+- Next: install `bandit==1.8.6` (and ideally pip-audit) locally, or the local gate will keep
+  disagreeing with CI. The pillow / Python-floor item in `TO-DO.md` still accounts for the 58
+  Dependabot alerts GitHub reports on every push.
