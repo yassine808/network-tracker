@@ -27,3 +27,25 @@
 - Next: the frontend split request is still unresolved (two readings: move the page out of
   `dataguard/`, or extract its CSS/JS). GitHub reports 58 Dependabot alerts on `main`
   (5 critical), all tied to the pillow / Python-floor item in `TO-DO.md`.
+
+### 2026-11-01 — running as a desktop window
+- Goal: run the app as a native window instead of a browser tab.
+- Done: installed the pinned extras into Python 3.9.13 — pillow 11.3.0, pystray 0.19.5,
+  pywebview 6.2.1 (pulls pythonnet 3.0.5, bottle, clr_loader, cffi); restarted the monitor
+  so `shell.py` takes the `HAVE_SHELL` path instead of `_fallback`.
+- Verified: python PID 22080 owns a visible, non-minimized 1100x740 window titled
+  "DataGuard"; WebView2 runtime 155.0.4283.62 is installed; `/` still answers 200 on
+  127.0.0.1:8787; the log has no "App window unavailable" fallback line.
+- Next: unchanged — the frontend split is still undecided. This entry is not committed.
+
+### 2026-11-01 — second dashboard pass pushed
+- Goal: get the rail/tick-dial rework onto the remote.
+- Done: `dashboard.html` changed again under us (383+/365-): top nav → left rail with
+  keyboard hints, cycle ring → 72-tick dial, today's bar → 48-segment meter, 30-day
+  heatmap → bars with a dashed limit line, settings reflowed into label/field sections
+  with a "Use current Wi-Fi" button. Committed as `03b026d`.
+- Verified: `python tests/smoke.py` exit 0 (`node --check` passes on the new inline
+  script); the only remote URL is still the pre-existing `fonts.googleapis.com` link
+  (Manrope range widened to 300..800 in this pass).
+- Next: the running window (PID 17572) still serves the page it imported at 04:17:56, so
+  it shows the previous design until the app is relaunched.
