@@ -532,13 +532,16 @@ class AppTracker(threading.Thread):
         self._index_started = False
         self._lnk = {}            # program stem -> the shortcut that carries its icon
         self._no_path = {}        # app name -> when the file last could not be found
-        self.nic_fn = None        # set by the dashboard: () -> bytes the counted NIC moved this tick
-        self.totals_fn = None     # set by the dashboard: () -> Overview's bytes for today (ground truth)
-        self.t_recon = 0.0        # last time the today total was reconciled against the Overview
+        self.totals_fn = None     # set by the dashboard: () -> Overview's per-day bytes for this cycle
+        self.t_recon = 0.0        # last time the cycle totals were reconciled against the Overview
+        self._last_today = None   # Overview's today total at the previous tick (apportionment source)
         self.net = NetWatch()     # exact per-PID bytes from ETW (needs admin); unavailable elsewhere
         self.net.resolve = self._name_for_pid  # capture a short-lived app's name at its first byte
-        self._pid_names = {}      # pid -> app name, kept past exit so late ETW bytes still name their app
-        self._live_names = {}     # pid -> raw name from the half-second snapshot thread
+        # pid -> (app name, process creation time). Kept past exit so late ETW bytes still
+        # name their app; the creation time is what stops a recycled pid inheriting the
+        # dead process's name.
+        self._pid_names = {}
+        self._live_names = {}     # same, from the half-second snapshot thread
 
     def exe(self, name):
         """File path for an app: the recorded one when it still exists, else looked up live
@@ -835,17 +838,14 @@ class AppTracker(threading.Thread):
             d = 0  # a counter reset must never subtract from the app's total
         return "keep", d
 
-    def _scale_deltas(self, cur, pids, record):
-        """(deltas, scale, skipped, blocked_skipped, raw_delta, nic_tot) - a process's raw
-        'other' bytes include device/driver I/O (NVIDIA Broadcast's camera work) and loopback,
-        which the NIC never sees, so the raw deltas sum larger than the Overview's counter.
-        Scale each app's share so the recorded total tracks the bytes the counted NIC actually
-        moved: Apps then adds up to the Overview instead of over-counting it. scale is capped
-        at 1.0 so a sample-boundary mismatch never inflates or shrinks real bytes downward;
-        when the NIC moved more than the apps reported (blind app), we record raw."""
+    def _raw_deltas(self, cur, pids, record):
+        """(deltas by app, skipped, blocked_skipped, raw_delta) - a process's raw 'other'
+        bytes include device/driver I/O (NVIDIA Broadcast's camera work) and loopback, which
+        the NIC never sees. Raw deltas are only the *share key* here: the tick's real bytes
+        are what the Overview counted, apportioned over them (see _apportion)."""
         skipped = 0
         blocked_skipped = 0
-        deltas = []
+        deltas = {}
         for pid, (name, v) in cur.items():
             kind, d = self._delta_for(pid, name, v, pids, record)
             if kind == "off":
@@ -853,14 +853,57 @@ class AppTracker(threading.Thread):
             elif kind == "blocked":
                 blocked_skipped += 1  # firewalled: its bytes never reach the counted NIC
             elif d:
-                deltas.append((name, d))
-        # Deltas only - both sides must be bytes moved in THIS tick's window, or the scale
-        # (NIC delta / absolute counter) collapses to ~0 and the apps stop counting at all.
-        raw_delta = sum(d for _, d in deltas)
-        nic_tot = self.nic_fn() if self.nic_fn else None
-        scale = (nic_tot / raw_delta) if (record and raw_delta > 0 and nic_tot is not None) else 1.0
-        scale = min(scale, 1.0)
-        return deltas, scale, skipped, blocked_skipped, raw_delta, nic_tot
+                deltas[name] = deltas.get(name, 0) + d
+        return deltas, skipped, blocked_skipped, sum(deltas.values())
+
+    def _wire_delta(self):
+        """Bytes the meter itself added to today since the previous tick.
+
+        The Overview is the ground truth, and its `days` totals are what the page shows. Taking
+        the increment of that same figure - instead of reading the NIC counter a second time -
+        is what makes the Apps panel add up to the Overview: no second sample that is a few
+        seconds out of step, no bytes counted twice, and nothing left for a bulk correction to
+        clean up. The Apps total trails the Overview by at most one tick (the increment cannot be
+        billed before it is read), which at a 10 s cadence is far below display resolution.
+        None means 'no baseline yet' (first tick after a start, or a day rollover); the apps then
+        record their payload as measured.
+        """
+        try:
+            truth = self.totals_fn() if self.totals_fn else None
+        except Exception as e:
+            logging.warning("apps: Overview totals unavailable: %s", e)
+            return None
+        if not truth:
+            return None
+        now = int(truth["days"].get(date.today().isoformat(), 0))
+        prev, self._last_today = self._last_today, now
+        if prev is None or now < prev:
+            return None  # first tick, or midnight: yesterday's total is not this tick's traffic
+        return now - prev
+
+    @staticmethod
+    def _apportion(deltas, wire):
+        """Split `wire` bytes - what the Overview itself added to today since the last tick -
+        over the apps in proportion to the payload each was measured to move. Integer, and
+        exact: the shares add up to `wire` to the byte, so the Apps rows add up to the Overview
+        instead of being corrected a minute later. Wire bytes no app claims (ICMP/ARP, a tick
+        whose ETW events have not landed yet) stay on System, where they are visible rather than
+        smeared over apps. Without a wire figure nothing is guessed: the payload is recorded as
+        measured."""
+        total = sum(deltas.values())
+        if wire is None:
+            return dict(deltas)
+        if wire <= 0:
+            return {}  # the counted NIC moved nothing: nothing to bill, whatever ETW saw
+        if not total:
+            return {"System": wire}
+        out, used = {}, 0
+        biggest = max(deltas, key=deltas.get)
+        for name, n in deltas.items():
+            out[name] = n * wire // total
+            used += out[name]
+        out[biggest] += wire - used  # the rounding remainder, to the app that moved the most
+        return out
 
     def tick(self):
         record = self.allowed()  # off the configured network: track state, but record nothing
@@ -874,12 +917,15 @@ class AppTracker(threading.Thread):
 
     def _tick_etw(self, record):
         """Exact path: ETW's Kernel-Network provider reports every send/receive with the
-        owning PID, so each app's payload is measured instead of guessed. The provider
-        counts TCP/UDP payload; the wire overhead is a fixed 4% (see scale below). Events
-        that never crossed a wire - loopback, or a proxy listening on a local virtual
-        adapter - are dropped inside NetWatch. Anything no app can claim is left to the
-        once-a-minute reconcile, which parks it on System rather than smearing it over the
-        apps."""
+        owning PID, so each app's payload is measured instead of guessed. What an app is
+        charged is that payload plus its share of what the meter counted: every tick splits the
+        bytes the Overview itself just added to today (_wire_delta) over the apps in proportion
+        to their payload (see _apportion). Because the figure comes from the same place the
+        Overview reads, the Apps rows track it to within one tick instead of drifting and being
+        corrected in bulk a minute later. Anything no app claims is parked on System. Events
+        that never crossed a wire - loopback, or a proxy listening on a local virtual adapter -
+        are dropped inside NetWatch: their egress is charged to the process that really sends
+        it."""
         day = date.today().isoformat()
         self.net.local = _local_addrs()  # local-to-local traffic never reaches the NIC
         raw = self.net.take()  # pid -> payload bytes since the previous tick
@@ -888,44 +934,51 @@ class AppTracker(threading.Thread):
         for pid, n in raw.items():
             if n <= 0:
                 continue
-            name = (self.net.names.get(pid) or names.get(pid) or self._pid_names.get(pid)
-                    or self._live_names.get(pid) or "pid %d" % pid)
+            name = self._app_for_pid(pid, names)
             if record and name in self.blocked:
                 continue  # firewalled: its bytes never reach the counted NIC
             deltas[name] = deltas.get(name, 0) + n
-        raw_total = sum(deltas.values())
-        nic_tot = self.nic_fn() if self.nic_fn else None
-        # ETW counts TCP/UDP payload; the Overview counts what the NIC moved, headers and
-        # ACKs included. 4% is that physical overhead for full-size segments. It is a
-        # constant on purpose: a ratio measured against the NIC swings with whatever else
-        # the adapter carried (a local proxy or VPN made it 1.25x one minute, 0.93x the
-        # next), and applying that to every app turns a measurement back into a guess.
-        scale = 1.04
+        payload = sum(deltas.values())
+        wire = self._wire_delta()
         gained = 0
         if record:
-            for name, d in deltas.items():
-                n = int(d * scale)
+            for name, n in self._apportion(deltas, wire).items():
                 if n:  # a rounding to zero must not leave a 0-byte row in the Apps list
                     self.store.add(day, name, n)
                     gained += n
-        self.diag = "v%s · ETW exact: %d app(s), %d pid(s), %.0f%% wire/payload" % (
-            __version__, len(deltas), len(raw), scale * 100)
+        self.diag = "v%s · ETW exact: %d app(s), %d pid(s), %d start(s), %s" % (
+            __version__, len(deltas), len(raw), self.net.starts, self._recon_note())
         logging.debug(
-            "tick(etw): record=%s apps=%d pids=%d raw=%d nic=%s scale=%.3f gained=%d "
+            "tick(etw): record=%s apps=%d pids=%d payload=%d wire=%s gained=%d "
             "local=%d skipped=%d",
-            record, len(deltas), len(raw), raw_total, nic_tot, scale, gained,
+            record, len(deltas), len(raw), payload, wire, gained,
             len(self.net.local), self.net.skipped_local)
         if record and self.totals_fn and time.time() - self.t_recon >= 60:
             self.t_recon = time.time()
             self._reconcile()
 
+    def _recon_note(self):
+        """One line for the diag string: how far the day's rows sit from the meter right now."""
+        try:
+            truth = self.totals_fn() if self.totals_fn else None
+        except Exception:
+            return "reconcile off"
+        if not truth:
+            return "reconciling"
+        day = date.today().isoformat()
+        mine = sum(n for d, _a, n in self.store.rows_since(day))
+        diff = int(truth["days"].get(day, 0)) - mine
+        return "%+d B vs Overview" % diff
+
     def _name_for_pid(self, pid):
-        """Name (and path) of a pid the first time ETW reports bytes for it. Runs on the ETW
-        thread once per pid: a downloader that lives two seconds must not end up as
-        'pid 1234' because the next ten-second walk no longer sees it."""
+        """(name, creation time) of a pid the first time ETW reports bytes for it. Runs on the
+        ETW thread once per pid: a downloader that lives two seconds must not end up as
+        'pid 1234' because the next ten-second walk no longer sees it. The creation time is
+        what lets a later tick tell a recycled pid from the process that moved the bytes."""
         try:
             p = psutil.Process(pid)
             name = p.name() or "pid %d" % pid
+            ct = p.create_time()
         except psutil.Error:
             return None
         name = _owner_name(p, name)
@@ -935,20 +988,20 @@ class AppTracker(threading.Thread):
             exe = ""
         if exe:
             self.paths.setdefault(name, exe)
-        return name
+        return (name, ct)
 
     def _refresh_names(self):
-        """Snapshot pid -> name twice a second while the tracker runs. ETW delivers in
-        batches a couple of seconds late, so a downloader that exits in between would
-        otherwise be filed as 'pid N'; this catches even a one-second program. The walk is
-        one syscall (~2 ms), cheap enough to run often."""
+        """Snapshot pid -> (name, creation time) twice a second while the tracker runs. ETW
+        delivers in batches a couple of seconds late, so a downloader that exits in between
+        would otherwise be filed as 'pid N'; this catches even a one-second program. The walk
+        is one syscall (~2 ms), cheap enough to run often."""
         while not self.stop_event.is_set():
             try:
                 names = {}
-                for p in psutil.process_iter(["name"]):
+                for p in psutil.process_iter(["name", "create_time"]):
                     n = p.info.get("name")
                     if n:
-                        names[p.pid] = n
+                        names[p.pid] = (n, p.info.get("create_time") or 0.0)
                 if names:
                     if len(self._live_names) > 4096:
                         self._live_names.clear()
@@ -961,41 +1014,57 @@ class AppTracker(threading.Thread):
         """pid -> app name for this tick, refreshing paths on the way. The cache keeps the
         name of a process that exited mid-tick: ETW already counted its bytes."""
         names = {}
-        for p in psutil.process_iter(["name", "exe"]):
+        for p in psutil.process_iter(["name", "exe", "create_time"]):
             name = p.info.get("name") or "pid %d" % p.pid
             if p.info.get("exe"):
                 self.paths.setdefault(name, p.info["exe"])
             name = _owner_name(p, name)  # WebView2/Electron helpers: bill the app that owns them
             names[p.pid] = name
-        self._pid_names.update(names)
+            self._pid_names[p.pid] = (name, p.info.get("create_time") or 0.0)
         if len(self._pid_names) > 4096:  # forget names of processes long gone
-            self._pid_names = dict(names)
+            self._pid_names = {pid: v for pid, v in self._pid_names.items() if pid in names}
         return names
+
+    def _app_for_pid(self, pid, live):
+        """The app a pid's bytes belong to. Windows recycles pids, so a cached name can belong
+        to a process that has already died: every cached name carries its creation time and
+        the newest one wins, instead of trusting whichever cache is consulted first."""
+        if pid in live:
+            return live[pid]
+        best_name, best_ct = "pid %d" % pid, -1.0
+        for cache in (self.net.names, self.net.procs, self._live_names, self._pid_names):
+            hit = cache.get(pid)
+            if not hit:
+                continue
+            name, ct = hit if isinstance(hit, tuple) else (hit, 0.0)
+            if name and ct >= best_ct:
+                best_name, best_ct = name, ct
+        return best_name
 
     def _tick_estimate(self, record):
         """Fallback when the ETW session could not start (not administrator): the old
-        process-counter estimate. It is a share, not a measurement - the diag says so."""
+        process-counter estimate. It is a share, not a measurement - the diag says so - but
+        it is apportioned the same way, so the rows still add up to the meter."""
         day, cur, blind, pids, remote, loop, loopback_skipped = self._collect()
-        deltas, scale, skipped, blocked_skipped, raw_delta, nic_tot = self._scale_deltas(
-            cur, pids, record)
+        deltas, skipped, blocked_skipped, raw = self._raw_deltas(cur, pids, record)
+        wire = self._wire_delta()
         gained = 0
         if record:
-            for name, d in deltas:
-                d = int(d * scale)
-                if d:  # a rounding to zero must not leave a 0-byte row in the Apps list
-                    self.store.add(day, name, d)
-                    gained += d
+            for name, n in self._apportion(deltas, wire).items():
+                if n:  # a rounding to zero must not leave a 0-byte row in the Apps list
+                    self.store.add(day, name, n)
+                    gained += n
         self.base = cur
+        fact = (", NIC/estimate %.0f%%" % (100.0 * wire / raw)) if (raw and wire) else ""
         self.diag = ("v%s · estimated (run as administrator for exact per-app bytes): "
                      "%s processes with connections, %d read via WMI, %d loopback-only, "
-                     "%d blocked%s") % (
+                     "%d blocked%s, %s") % (
             __version__, "?" if pids is None else len(set(pids)), len(blind),
-            len(loop - (remote or set())), blocked_skipped,
-            "" if scale in (0.0, 1.0) else ", scaled %.0f%% to NIC" % (scale * 100))
+            len(loop - (remote or set())), blocked_skipped, fact, self._recon_note())
         logging.debug(
-            "tick(estimate): record=%s pids=%s raw_delta=%d nic_delta=%s scale=%.3f gained=%d "
+            "tick(estimate): record=%s pids=%s raw_delta=%d wire=%s gained=%d "
             "procs=%d blind=%d skipped_no_conn=%d loopback_skipped=%d blocked_skipped=%d",
-            record, "?" if pids is None else len(pids), raw_delta, nic_tot, scale, gained,
+            record, "?" if pids is None else len(pids), raw, wire, gained,
             len(cur), len(blind), skipped, loopback_skipped, blocked_skipped)
         if record and self.totals_fn and time.time() - self.t_recon >= 60:
             self.t_recon = time.time()
@@ -1004,12 +1073,16 @@ class AppTracker(threading.Thread):
     def _reconcile(self):
         """Make each cycle day's Apps total equal the Overview's (ground truth).
 
-        The meter counts every byte the counted NIC moved, per day; the apps are summed
-        from what the tracker measured per process. Whatever is left - traffic no process
-        could claim, a scale the clamp held back, a window the sampler missed - belongs to
-        no app, so it is parked on the System row. It is never shared out by history: that
-        is what used to spread one app's traffic across all of them, keeping the sum right
-        while making every per-app number wrong."""
+        Ticks already apportion the meter's own increment across the apps (_apportion), so the
+        cycle total is exact by construction and this only has to settle what the ticks could
+        not: the seconds before the first tick, a killed run whose unflushed rows were lost, a
+        counter the sampler refused to trust. Those are only knowable once the day has stopped
+        moving, so today is left alone - comparing a live day against a sampler that is up to
+        one window behind is what used to make System grow and shrink by megabytes a minute.
+        Whatever is left belongs to no app, so it is parked on the System row. It is never
+        shared out by history: that is what used to spread one app's traffic across all of
+        them, keeping the sum right while making every per-app number wrong."""
+        today = date.today().isoformat()
         try:
             truth = self.totals_fn()
         except Exception as e:
@@ -1023,7 +1096,7 @@ class AppTracker(threading.Thread):
             if n:
                 by_day.setdefault(d, []).append((app, n))
         for d in sorted(set(ov_days) | set(by_day)):
-            if d < start:
+            if d < start or d >= today:  # today is still moving; it settles at midnight
                 continue
             self._reconcile_day(d, ov_days, by_day)
 

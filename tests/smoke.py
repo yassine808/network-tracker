@@ -305,6 +305,47 @@ def test_overview_total(tmp):
         st.conn.close()
 
 
+def test_app_allocation(tmp):
+    """Apps must add up to the Overview by construction, and a recycled pid must not inherit
+    a dead process's name.
+
+    Every tick hands out exactly the bytes the counted NIC moved, split by measured payload,
+    so the rows can never drift from the meter (the old fixed 4% + once-a-minute correction
+    drifted by megabytes, and booked in-flight bytes to System twice)."""
+    from dataguard.apps import AppStore, AppTracker
+
+    app = AppTracker._apportion
+    check(sum(app({"a": 100, "b": 300}, 400).values()) == 400,
+          "apps: a tick hands out exactly the bytes the NIC moved", str(app({"a": 100, "b": 300}, 400)))
+    check(app({"a": 100, "b": 300}, 400) == {"a": 100, "b": 300},
+          "apps: the split is proportional to payload", str(app({"a": 100, "b": 300}, 400)))
+    odd = app({"a": 1, "b": 1, "c": 1}, 100)
+    check(sum(odd.values()) == 100, "apps: a rounding remainder is not lost", str(odd))
+    check(app({"a": 500}, 0) == {} and app({"a": 500}, None) == {"a": 500},
+          "apps: no wire figure records the payload as measured, an idle NIC records nothing")
+    check(app({}, 4096) == {"System": 4096},
+          "apps: wire bytes no app claims stay on System", str(app({}, 4096)))
+    check(sum(app({"a": 9_000, "b": 1_000}, 3_000).values()) == 3_000,
+          "apps: wire below payload is still handed out in full")
+
+    tr = AppTracker(AppStore(tmp / "apps"))
+    tr.net.names[42] = ("curl.exe", 1000.0)      # pid last seen as curl
+    tr._live_names[42] = ("WmiPrvSE.exe", 500.0)  # ...but that name is older
+    check(tr._app_for_pid(42, {}) == "curl.exe",
+          "apps: a pid's newest owner names its bytes", tr._app_for_pid(42, {}))
+    check(tr._app_for_pid(42, {42: "brave.exe"}) == "brave.exe",
+          "apps: a live process always names itself")
+    check(tr._app_for_pid(7, {}) == "pid 7", "apps: an unknown pid says so", tr._app_for_pid(7, {}))
+
+    from dataguard.netwatch import _proc_start
+    path = "\\Device\\HarddiskVolume5\\Windows\\System32\\curl.exe"
+    payload = b"\x34\x12\x00\x00" + b"\x00" * 8 + path.encode("utf-16-le") + b"\x00\x00" * 4
+    check(_proc_start(payload, len(payload)) == (0x1234, path),
+          "apps: a ProcessStart payload names its program", str(_proc_start(payload, len(payload))))
+    check(_proc_start(b"\x34\x12\x00\x00" + b"\x00" * 20, 24) is None,
+          "apps: a payload with no image name is not guessed at")
+
+
 def test_midnight_split(tmp):
     """A sample crossing midnight is split by time, so 'today' (and the daily cap) is right."""
     st = Store(tmp)
@@ -436,6 +477,8 @@ def main():
         test_nic_delta(tmp / "nic")
         print("overview total")
         test_overview_total(tmp / "total")
+        print("apps allocation")
+        test_app_allocation(tmp / "apps")
         print("midnight split")
         test_midnight_split(tmp / "mid")
         print("cli calibrate")

@@ -6,6 +6,10 @@ I/O for tens of MB received. The Kernel-Network provider does log every send/rec
 with the owning PID; a real-time session needs administrator rights, so `available` can
 be False and the caller must fall back.
 
+The same session also listens to Microsoft-Windows-Kernel-Process: its ProcessStart event
+carries the image name, so a downloader that lives 300 ms still gets its own row instead
+of "pid 1234" (the network events arrive a second or two after the process is gone).
+
 Payload layout: u32 pid, u32 size, then saddr/daddr (4+4 bytes IPv4, 16+16 IPv6) and
 sport/dport (network order). Only the first 8 bytes matter for accounting; the addresses
 are used to drop loopback, which never reaches the NIC.
@@ -17,6 +21,7 @@ Event IDs (opcodes): TCP v4 send/recv 10/11, TCP v6 26/27, UDP v4 42/43, UDP v6 
 import atexit
 import ctypes
 import logging
+import re
 import threading
 from ctypes import wintypes
 
@@ -27,6 +32,9 @@ log = logging.getLogger(__name__)
 SESSION = "DataGuardNet"
 GUID_KERNEL_NETWORK = (0x7DD42A49, 0x5329, 0x4832,
                        (0x8D, 0xFD, 0x43, 0xD9, 0x79, 0x15, 0x3A, 0x88))
+GUID_KERNEL_PROCESS = (0x22FB2CD6, 0x0E7B, 0x422B,
+                       (0xA0, 0xC7, 0x2F, 0xAD, 0x1F, 0xD0, 0xE7, 0x16))
+PROCESS_KEYWORD = 0x10  # WINEVENT_KEYWORD_PROCESS: ProcessStart/ProcessStop only
 
 DATA_EVENTS = frozenset((10, 11, 26, 27, 42, 43, 58, 59))
 IPV6_EVENTS = frozenset((26, 27, 58, 59))
@@ -149,6 +157,34 @@ def _local_ipv6(data, n, local):
     return bool(local) and s in local and d in local
 
 
+def _proc_start(data, n):
+    """(pid, image path) from a Kernel-Process ProcessStart payload, or None.
+
+    The template grows with every Windows build (this machine sends version 4), so nothing
+    past the pid is assumed: the image path is the one UTF-16 string in the payload that ends
+    in .exe. Two fields are fixed across versions - the pid leads the payload, and the image
+    name is the field the message calls its name - so this reads both without pinning the
+    rest of a layout that has already changed three times."""
+    if n < 12:
+        return None
+    pid = int.from_bytes(data[0:4], "little")
+    if not pid:
+        return None
+    best = ""
+    for m in re.finditer(rb"\.\x00[eE]\x00[xX]\x00[eE]\x00", data):
+        start = m.start()
+        while start - 2 >= 4 and data[start - 2:start] != b"\x00\x00":
+            start -= 2
+        end = m.end()
+        while end + 1 < n and 32 <= data[end] < 127 and data[end + 1] == 0:
+            end += 2
+        text = "".join(ch for ch in data[start:end].decode("utf-16-le", "replace")
+                       if ch.isprintable()).strip()
+        if text.lower().endswith(".exe") and len(text) > len(best):
+            best = text
+    return (pid, best) if best else None
+
+
 if IS_WIN:
     _advapi = ctypes.WinDLL("advapi32", use_last_error=True)
     _advapi.StartTraceW.argtypes = (ctypes.POINTER(wintypes.HANDLE), wintypes.LPCWSTR,
@@ -208,7 +244,13 @@ class NetWatch:
         self._logfile = None
         self._harr = None
         self.resolve = None   # optional callable(pid) -> name; called the first time a pid is seen
-        self.names = {}       # pid -> name captured at its first event (survives the process)
+        self.names = {}       # pid -> whatever resolve returned (DataGuard: name + create time),
+                              # captured at its first event and kept past the process's exit
+        self.procs = {}       # pid -> (image name, creation time) from Kernel-Process events:
+                              # the only way to name a program that exited before its bytes landed
+        self.starts = 0       # ProcessStart events seen (diagnostics)
+        self.bad_start = 0    # ProcessStart payloads that did not parse
+        self.seen = {}        # provider -> events received (diagnostics)
         self.local = set()    # raw bytes of every address this machine owns; see _local_ipv4
         self.skipped_local = 0  # events dropped because both ends are this machine
 
@@ -246,6 +288,16 @@ class NetWatch:
             return False
 
     def _enable(self):
+        if not self._enable_provider(GUID_KERNEL_NETWORK, 0xFFFFFFFFFFFFFFFF):
+            return False  # without the network events there is nothing to count
+        if not self._enable_provider(GUID_KERNEL_PROCESS, PROCESS_KEYWORD):
+            # names are an improvement, not the measurement: keep counting without them
+            log.warning("netwatch: Kernel-Process names unavailable (%s); short-lived "
+                        "programs will be filed as 'pid N'", self.error)
+            self.error = ""
+        return True
+
+    def _enable_provider(self, spec, match):
         class ENABLE_TRACE_PARAMETERS(ctypes.Structure):
             _fields_ = [("Version", wintypes.ULONG), ("EnableProperty", wintypes.ULONG),
                         ("ControlFlags", wintypes.ULONG), ("SourceId", GUID),
@@ -253,11 +305,10 @@ class NetWatch:
 
         params = ENABLE_TRACE_PARAMETERS()
         params.Version = 1
-        guid = GUID(*GUID_KERNEL_NETWORK[:3],
-                    (ctypes.c_ubyte * 8)(*GUID_KERNEL_NETWORK[3]))
+        guid = GUID(*spec[:3], (ctypes.c_ubyte * 8)(*spec[3]))
         rc = _advapi.EnableTraceEx2(self._handle, ctypes.byref(guid),
                                     EVENT_CONTROL_CODE_ENABLE_PROVIDER, 5,
-                                    ctypes.c_ulonglong(0xFFFFFFFFFFFFFFFF),
+                                    ctypes.c_ulonglong(match),
                                     ctypes.c_ulonglong(0), 0, ctypes.byref(params))
         if rc:
             self.error = "EnableTraceEx2 rc=%d" % rc
@@ -285,6 +336,12 @@ class NetWatch:
 
     def _on_event(self, rec):
         e = rec.contents
+        if e.EventHeader.ProviderId.Data1 == GUID_KERNEL_PROCESS[0]:
+            self.seen["proc"] = self.seen.get("proc", 0) + 1
+            if e.EventHeader.EventDescriptor.Id == 1:  # ProcessStart
+                self._process_start(e, rec)
+            return
+        self.seen["net"] = self.seen.get("net", 0) + 1
         evid = e.EventHeader.EventDescriptor.Id
         if evid not in DATA_EVENTS:
             return
@@ -310,6 +367,27 @@ class NetWatch:
                 self.names[pid] = None
         with self._lock:
             self._counters[pid] = self._counters.get(pid, 0) + size
+
+    def _process_start(self, e, _rec=None):
+        """Remember a process's image name the moment it starts, so its bytes are billed to a
+        real app even if it is gone before the network events for them arrive."""
+        n = e.UserDataLength
+        if n < 12 or not e.UserData:
+            return
+        got = _proc_start(ctypes.string_at(e.UserData, n), n)
+        if got is None:
+            self.bad_start += 1
+            if self.bad_start <= 3:
+                log.warning("netwatch: ProcessStart payload not understood (%d bytes)", n)
+            return
+        pid, path = got
+        name = path.rsplit("\\", 1)[-1] or path
+        # the event's own timestamp orders this name against psutil's creation time
+        when = e.EventHeader.TimeStamp / 10_000_000.0 - 11644473600.0
+        if len(self.procs) > 4096:  # forget long-gone processes rather than grow forever
+            self.procs.clear()
+        self.procs[pid] = (name, when)
+        self.starts += 1
 
     def take(self):
         """{pid: bytes} collected since the previous call, and reset."""

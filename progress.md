@@ -1,6 +1,8 @@
 # Progress — DataGuard (network-tracker)
 
 ## Plan
+- [x] Find why the Apps rows and the Overview disagree, and close the gap for good
+- [x] Make short-lived processes land on their own real name, not "pid N"
 - [ ] (nothing in flight — awaiting next task)
 
 ## Log
@@ -89,3 +91,71 @@
 - Next: uncommitted — `README.md`, `dataguard/dashboard.html` (nav centering) and the three
   PNGs. The app was left running without a window (tray icon) so the shots could be taken
   without touching the desktop.
+
+### 2026-11-01 — Apps and Overview now add up to the byte
+- Goal: "find out why there is a difference, and keep fixing bugs etc! make the app 100%
+  accurate" — the Overview total, the sum of the Apps rows, and each app's own row.
+- Why they differed: measured first, then fixed. Two causes.
+  1. A fixed `scale = 1.04` plus a once-a-minute `_reconcile` that compared two counters
+     sampled at different instants. Every minute it added whatever was "missing" to the
+     System row, then the late ETW events for those same bytes arrived and were counted
+     again: System grew to 45-62 MB and the Apps sum swung ±13 MB around the Overview
+     (`reconcile: ... -> +12960470 on System` right in the middle of a 20 MB download).
+  2. Recycled pids inherited dead processes' names. A 20 MB `curl` download landed on
+     `WmiPrvSE.exe` (10,428,273 B) because the pid had belonged to WmiPrvSE before curl got
+     it; short-lived programs whose events arrived after they exited were filed as `pid N`.
+     Evidence: `tests/probe.json` (a curl run credited 100% to `usque.exe`), and a direct
+     20 MB test that booked 10.4 MB twice, once to `curl.exe`, once to `WmiPrvSE.exe`.
+- Done:
+  - `apps._apportion`: every ten-second tick now splits the bytes the **Overview itself**
+    just added to today over the apps in proportion to the payload ETW measured for them —
+    integer-exact, remainder to the biggest mover. The rows therefore cannot drift from the
+    meter or exceed it: they follow it, at most one tick behind. Wire bytes no app claims go
+    to System, never smeared over apps. The fixed 4% and the accumulation of System both
+    went away.
+  - `apps._wire_delta`: the tick's byte figure is the increment of the Overview's own daily
+    total. A first version read the NIC counter separately for the tracker's window; it
+    tracked closely (±13 KB on a 14 MB burst) but needed an interface-change guard and a
+    jump guard, and could bill windows the sampler had refused to credit. Reading the meter's
+    own figure makes "apps sum == Overview" structural instead of approximately true, so the
+    second counter read and both guards were deleted.
+  - `apps._reconcile`: now settles **finished** days only. Comparing a live day against a
+    sampler up to one window behind is what kept System growing and shrinking by megabytes a
+    minute; once the day stops moving the comparison is meaningful, and it repairs what the
+    ticks could not see (the seconds before a start, a killed run's lost rows).
+  - `apps._app_for_pid` + caches: pid entries now carry the process creation time, and the
+    newest owner wins, so a recycled pid can no longer inherit a dead app's name.
+  - `netwatch`: same ETW session also enables `Microsoft-Windows-Kernel-Process`
+    (keyword 0x10) and remembers each process's image name at ProcessStart, so a downloader
+    that lives 300 ms still gets its own row. The payload template has changed three times
+    (this build sends version 4) and TDH would not decode it, so the parser relies only on
+    what is fixed: the pid leads the payload and the image path is the UTF-16 string ending
+    in `.exe`.
+  - `apps._tick_estimate` (non-admin fallback): apportioned the same way, no more `scale`
+    capped at 1.0.
+  - `live.Monitor.nic_total` removed (nothing calls it any more).
+  - README "Measured, not guessed" / "Reconciled to the Overview" rewritten to match.
+  - `tests/smoke.py`: `test_app_allocation` (11 checks) — apportionment sums and rounding,
+    an idle meter, a tick with no payload, the pid-reuse/name rules, and the ProcessStart
+    payload parser.
+  - Diagnostics kept: `tests/gap.py` (Overview vs Apps vs DB, right now) and
+    `tests/watch.py` (one known download, sampled every 5 s).
+- Verified: `python tests/smoke.py` exit 0 (70 checks, incl. the ProcessStart parser), `ruff
+  check dataguard/ dataguard.py` clean, `compileall` clean. Live, with the real app on the
+  real adapter:
+  - 5 x 2 MB direct curl, last build: `curl.exe +10,462,694` for 10,000,000 bytes of payload
+    (the 4.6 % is TCP/HTTP overhead, now inside the app's number), `96 start(s)` decoded, no
+    `pid N` row, and the diag did not move by a single byte during the transfer.
+  - 2 x 10 MB direct curl: `+10,617,336` then `+10,583,332`, `System +0` both times. Under
+    the intermediate build the Apps sum tracked the Overview to 13 KB on a 14 MB burst; the
+    final build is exact by construction, so it is one tick (10 s of traffic, a few MB)
+    behind instead of a few KB out.
+  - `tests/watch.py`, full run: 20 MB moved, `System +0` throughout, diag drift constant.
+- Note: today's own rows still carry ~13.9 MB of System inflation created by the old
+  reconcile while it was being tested (`System cycle=25,206,274`). Today is now left alone,
+  so it stands for the rest of the day; at midnight the settled-day reconcile takes exactly
+  that difference back off System (it has 25 MB to give) and the day ends exact.
+- Next: nothing in flight. Proxied traffic (system HTTP proxy on a local virtual adapter) is
+  still billed to the process that really sends it — the client's own socket never touches a
+  wire; pairing a local proxy's upstream connections to its clients is not something ETW
+  exposes.

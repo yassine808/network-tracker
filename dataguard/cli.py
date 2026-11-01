@@ -165,23 +165,6 @@ def _announce_busy(port, url, open_window):
         webbrowser.open(url)  # the running copy could not show a window
 
 
-def _nic_bytes_fn(mon):
-    """Build the tracker's nic callback: bytes the counted NIC moved since this tracker's
-    previous tick (Overview = ground truth). Differencing the cumulative counter keeps both
-    sides on the tracker's own window; a reset/jump (total went backwards) reports None so
-    apps record raw."""
-    nic_prev = [None]
-
-    def nic_bytes():
-        tot = mon.nic_total()
-        prev, nic_prev[0] = nic_prev[0], tot
-        if tot is None or prev is None or tot < prev:
-            return None
-        return tot - prev
-
-    return nic_bytes
-
-
 def _totals_today_fn(mon):
     """Build the tracker's totals callback: the meter's per-day byte totals for this cycle -
     ground truth for the Apps' reconciliation."""
@@ -244,7 +227,6 @@ def cmd_run(args, home):
     # allowed: the meter's network flag - None until known, True only on the configured Wi-Fi
     tracker = AppTracker(AppStore(home), allowed=lambda: mon.counting)
     Handler.tracker = tracker
-    tracker.nic_fn = _nic_bytes_fn(mon)
     tracker.totals_fn = _totals_today_fn(mon)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     tracker.start()

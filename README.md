@@ -131,14 +131,21 @@ Open `http://127.0.0.1:8787` (or the app window / tray icon). Keyboard shortcuts
   UAC prompt per network change (not one per app). Windows system processes can never be blocked.
 - **Measured, not guessed** — started as administrator, DataGuard reads Windows' own network
   events (ETW, `Microsoft-Windows-Kernel-Network`) and sums every TCP/UDP send and receive per
-  process, so a browser, a game and a download tool are told apart exactly. Traffic that never
-  leaves the machine (loopback, a proxy listening on a local virtual adapter) is ignored, and
-  the small wire overhead (TCP/IP headers, ACKs) is added back. Without elevation the page falls
-  back to a labelled estimate from process I/O counters.
-- **Reconciled to the Overview** — once a minute the day's total is checked against the
-  Overview's own count; bytes no process could claim (broadcast noise, a window the sampler
-  missed) are parked on the **System** row, never spread across the apps. A blocked app records
-  no usage while its block is enforced.
+  process, so a browser, a game and a download tool are told apart exactly. A second provider
+  (`Microsoft-Windows-Kernel-Process`) records each process's image name as it starts, so a
+  downloader that lives half a second still gets its own row instead of "pid 1234". Traffic
+  that never leaves the machine (loopback, a proxy listening on a local virtual adapter) is
+  ignored. Without elevation the page falls back to a labelled estimate from process I/O
+  counters.
+- **Every app adds up** - the Overview is the wire truth: it counts what the network adapter
+  moved. Each ten-second tick takes the bytes the Overview itself just added and splits exactly
+  those over the apps in proportion to the payload ETW measured for them, so the Apps rows follow
+  the Overview to the byte (at most one tick behind, far below display resolution), with the
+  header/ACK overhead already inside each app's number rather than bolted on as a percentage.
+  Bytes no app claims (broadcast noise, ICMP/ARP, a window the sampler missed) are parked on
+  the **System** row, never spread across the apps. Days that have finished are settled once
+  against the meter, which repairs whatever the ticks could not see (the seconds before a
+  start, a killed run). A blocked app records no usage while its block is enforced.
 
 ### Settings
 
@@ -302,7 +309,7 @@ flowchart LR
     MON --> ST
     MON --> FWL --> FW
     MON --> NT --> TOAST
-    TRK --> NIC
+    TRK --> MON
     TRK --> ST
     WEB --> PAGE
     WEB --> MON
