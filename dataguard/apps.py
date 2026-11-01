@@ -18,6 +18,8 @@ from .common import DB_NAME, IS_WIN, psutil
 from .netwatch import NetWatch
 from .processes import io_proxy, _remote_pids, loopback_pids
 
+log = logging.getLogger(__name__)
+
 KEEP_DAYS = 400
 
 
@@ -345,7 +347,7 @@ def _local_addrs():
                 except (OSError, ValueError):
                     continue
     except Exception:  # an interface-table hiccup must not stop a tick
-        pass
+        log.debug("could not read the interface table", exc_info=True)
     return out
 
 
@@ -1007,7 +1009,7 @@ class AppTracker(threading.Thread):
                         self._live_names.clear()
                     self._live_names.update(names)
             except Exception:  # a hiccup must not kill the name snapshot
-                pass
+                log.debug("process-name snapshot failed, keeping the last one", exc_info=True)
             self.stop_event.wait(0.5)
 
     def _names_now(self):

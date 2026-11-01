@@ -401,13 +401,13 @@ class NetWatch:
             try:
                 _stop_session()
             except Exception:
-                pass
+                log.debug("could not stop the ETW session", exc_info=True)
             self._handle = None
         if self._trace is not None:
             try:
                 _advapi.CloseTrace(self._trace)
             except Exception:
-                pass
+                log.debug("could not close the ETW trace handle", exc_info=True)
             self._trace = None
         self.available = False
 
