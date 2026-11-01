@@ -129,13 +129,20 @@ Open `http://127.0.0.1:8787` (or the app window / tray icon). Keyboard shortcuts
   **Blocks are gated to your hotspot**: each rule applies tri-state — on your configured Wi-Fi the
   app is blocked, on any other network it is allowed, and DataGuard flips the rules with a single
   UAC prompt per network change (not one per app). Windows system processes can never be blocked.
-- **Reconciled to the Overview** — per-app totals are re-balanced each minute against the
-  Overview's own count, so the rows always add up to what was actually recorded; a blocked app
-  records no usage while its block is enforced.
+- **Measured, not guessed** — started as administrator, DataGuard reads Windows' own network
+  events (ETW, `Microsoft-Windows-Kernel-Network`) and sums every TCP/UDP send and receive per
+  process, so a browser, a game and a download tool are told apart exactly. Traffic that never
+  leaves the machine (loopback, a proxy listening on a local virtual adapter) is ignored, and
+  the small wire overhead (TCP/IP headers, ACKs) is added back. Without elevation the page falls
+  back to a labelled estimate from process I/O counters.
+- **Reconciled to the Overview** — once a minute the day's total is checked against the
+  Overview's own count; bytes no process could claim (broadcast noise, a window the sampler
+  missed) are parked on the **System** row, never spread across the apps. A blocked app records
+  no usage while its block is enforced.
 
 ### Settings
 
-![DataGuard Settings tab: Plan, Network, Alerts, Sounds, Reset and Font cards](docs/screenshots/settings.png)
+![DataGuard Settings tab: Plan, Network and Alerts cards](docs/screenshots/settings.png)
 
 | Card | What it controls |
 |------|------------------|

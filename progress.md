@@ -74,3 +74,18 @@
   renders full height (1016 blue pixels). `tests/smoke.py` exit 0.
 - Next: `dataguard/dashboard.html` is modified but uncommitted. The plan is currently
   set to 999 GB (set during testing) — restore it to the real plan if that was a slip.
+### 2026-11-01 — nav centered; README screenshots refreshed
+- Goal: “put overview, apps and settings in the middle” of the top bar, then “update
+  readme.md with new screenshots”.
+- Done: `#top` is now `display:grid;grid-template-columns:1fr auto 1fr`, so the nav sits in
+  the middle regardless of how wide the brand and the right cluster get; the <=900px rule
+  restores `display:flex` before it wraps. Re-shot `docs/screenshots/overview.png`,
+  `apps.png` and `settings.png` at 1084x701 and corrected the Settings caption to the cards
+  the shot actually shows.
+- Verified: `/` serves the grid rule; the captures match the app window pixel-for-pixel (same
+  fonts, same layout, nav centred); `tests/smoke.py` exit 0; `ruff check dataguard/ dataguard.py`
+  clean. `ruff check .` still flags E402 in `tests/smoke.py` — pre-existing, and CI lints only
+  the package.
+- Next: uncommitted — `README.md`, `dataguard/dashboard.html` (nav centering) and the three
+  PNGs. The app was left running without a window (tray icon) so the shots could be taken
+  without touching the desktop.

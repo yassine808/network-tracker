@@ -15,6 +15,7 @@ from pathlib import Path
 
 from . import __version__
 from .common import DB_NAME, IS_WIN, psutil
+from .netwatch import NetWatch
 from .processes import io_proxy, _remote_pids, loopback_pids
 
 KEEP_DAYS = 400
@@ -328,6 +329,26 @@ def _owner_name(p, name):
     return name
 
 
+def _local_addrs():
+    """Every address this machine owns, as raw bytes. An ETW event whose two ends are both
+    local (a proxy listening on a virtual adapter, loopback) never touched the NIC; the
+    Overview did not count it, so the apps must not either."""
+    out = set()
+    try:
+        for items in psutil.net_if_addrs().values():
+            for a in items:
+                try:
+                    if a.family == socket.AF_INET:
+                        out.add(socket.inet_aton(a.address))
+                    elif a.family == socket.AF_INET6:
+                        out.add(socket.inet_pton(socket.AF_INET6, a.address.split("%")[0]))
+                except (OSError, ValueError):
+                    continue
+    except Exception:  # an interface-table hiccup must not stop a tick
+        pass
+    return out
+
+
 def _wmi_other():
     """{pid: cumulative 'other' I/O bytes} from the performance counters. Unlike psutil this
     also reads protected and packaged (Store) apps such as WhatsApp. {} on any failure."""
@@ -514,6 +535,10 @@ class AppTracker(threading.Thread):
         self.nic_fn = None        # set by the dashboard: () -> bytes the counted NIC moved this tick
         self.totals_fn = None     # set by the dashboard: () -> Overview's bytes for today (ground truth)
         self.t_recon = 0.0        # last time the today total was reconciled against the Overview
+        self.net = NetWatch()     # exact per-PID bytes from ETW (needs admin); unavailable elsewhere
+        self.net.resolve = self._name_for_pid  # capture a short-lived app's name at its first byte
+        self._pid_names = {}      # pid -> app name, kept past exit so late ETW bytes still name their app
+        self._live_names = {}     # pid -> raw name from the half-second snapshot thread
 
     def exe(self, name):
         """File path for an app: the recorded one when it still exists, else looked up live
@@ -728,27 +753,33 @@ class AppTracker(threading.Thread):
         if not self.supported:
             return
         self._start_index()  # so the first page load finds icons, not a disk walk
+        self.net.start()     # exact per-PID source; when it cannot start, tick() estimates
+        threading.Thread(target=self._refresh_names, daemon=True,
+                         name="dataguard-pid-names").start()
         gate = None  # None = the network is still unknown; judged on the first ticks
         last_resync = 0.0
-        while not self.stop_event.is_set():
-            try:
-                self.tick()
-                now = self.allowed()
-                if now is not None and now != gate:
-                    gate = now
-                    self.sync_blocks()
-                    self._log_gate(gate)
-                # Avast updates itself while blocked and drops new binaries: re-scan and
-                # re-apply the suite blocks every few minutes (read-only when nothing changed)
-                if gate and self.blocked and time.monotonic() - last_resync > 300:
-                    last_resync = time.monotonic()
-                    self.sync_blocks()
-                self.err = ""
-            except Exception as e:  # never let a hiccup stop the tracker
-                self.err = f"{type(e).__name__}: {e}"
-            # while the network is unknown, judge again quickly instead of waiting a full tick
-            self.stop_event.wait(self.INTERVAL if gate is not None else 1.0)
-        self.store.flush(force=True)
+        try:
+            while not self.stop_event.is_set():
+                try:
+                    self.tick()
+                    now = self.allowed()
+                    if now is not None and now != gate:
+                        gate = now
+                        self.sync_blocks()
+                        self._log_gate(gate)
+                    # Avast updates itself while blocked and drops new binaries: re-scan and
+                    # re-apply the suite blocks every few minutes (read-only when nothing changed)
+                    if gate and self.blocked and time.monotonic() - last_resync > 300:
+                        last_resync = time.monotonic()
+                        self.sync_blocks()
+                    self.err = ""
+                except Exception as e:  # never let a hiccup stop the tracker
+                    self.err = f"{type(e).__name__}: {e}"
+                # while the network is unknown, judge again quickly instead of waiting a full tick
+                self.stop_event.wait(self.INTERVAL if gate is not None else 1.0)
+        finally:
+            self.net.stop()
+            self.store.flush(force=True)
 
     def _collect(self):
         """(day, cur, blind, pids, remote, loop, loopback_skipped): pass 1's whole population -
@@ -833,6 +864,117 @@ class AppTracker(threading.Thread):
 
     def tick(self):
         record = self.allowed()  # off the configured network: track state, but record nothing
+        if self.net.available:
+            self._tick_etw(record)
+        else:
+            self._tick_estimate(record)
+        if time.time() - self.t_flush >= self.FLUSH_EVERY:
+            self.t_flush = time.time()
+            self.store.flush()
+
+    def _tick_etw(self, record):
+        """Exact path: ETW's Kernel-Network provider reports every send/receive with the
+        owning PID, so each app's payload is measured instead of guessed. The provider
+        counts TCP/UDP payload; the wire overhead is a fixed 4% (see scale below). Events
+        that never crossed a wire - loopback, or a proxy listening on a local virtual
+        adapter - are dropped inside NetWatch. Anything no app can claim is left to the
+        once-a-minute reconcile, which parks it on System rather than smearing it over the
+        apps."""
+        day = date.today().isoformat()
+        self.net.local = _local_addrs()  # local-to-local traffic never reaches the NIC
+        raw = self.net.take()  # pid -> payload bytes since the previous tick
+        names = self._names_now()
+        deltas = {}
+        for pid, n in raw.items():
+            if n <= 0:
+                continue
+            name = (self.net.names.get(pid) or names.get(pid) or self._pid_names.get(pid)
+                    or self._live_names.get(pid) or "pid %d" % pid)
+            if record and name in self.blocked:
+                continue  # firewalled: its bytes never reach the counted NIC
+            deltas[name] = deltas.get(name, 0) + n
+        raw_total = sum(deltas.values())
+        nic_tot = self.nic_fn() if self.nic_fn else None
+        # ETW counts TCP/UDP payload; the Overview counts what the NIC moved, headers and
+        # ACKs included. 4% is that physical overhead for full-size segments. It is a
+        # constant on purpose: a ratio measured against the NIC swings with whatever else
+        # the adapter carried (a local proxy or VPN made it 1.25x one minute, 0.93x the
+        # next), and applying that to every app turns a measurement back into a guess.
+        scale = 1.04
+        gained = 0
+        if record:
+            for name, d in deltas.items():
+                n = int(d * scale)
+                if n:  # a rounding to zero must not leave a 0-byte row in the Apps list
+                    self.store.add(day, name, n)
+                    gained += n
+        self.diag = "v%s · ETW exact: %d app(s), %d pid(s), %.0f%% wire/payload" % (
+            __version__, len(deltas), len(raw), scale * 100)
+        logging.debug(
+            "tick(etw): record=%s apps=%d pids=%d raw=%d nic=%s scale=%.3f gained=%d "
+            "local=%d skipped=%d",
+            record, len(deltas), len(raw), raw_total, nic_tot, scale, gained,
+            len(self.net.local), self.net.skipped_local)
+        if record and self.totals_fn and time.time() - self.t_recon >= 60:
+            self.t_recon = time.time()
+            self._reconcile()
+
+    def _name_for_pid(self, pid):
+        """Name (and path) of a pid the first time ETW reports bytes for it. Runs on the ETW
+        thread once per pid: a downloader that lives two seconds must not end up as
+        'pid 1234' because the next ten-second walk no longer sees it."""
+        try:
+            p = psutil.Process(pid)
+            name = p.name() or "pid %d" % pid
+        except psutil.Error:
+            return None
+        name = _owner_name(p, name)
+        try:
+            exe = p.exe()
+        except (psutil.Error, OSError):
+            exe = ""
+        if exe:
+            self.paths.setdefault(name, exe)
+        return name
+
+    def _refresh_names(self):
+        """Snapshot pid -> name twice a second while the tracker runs. ETW delivers in
+        batches a couple of seconds late, so a downloader that exits in between would
+        otherwise be filed as 'pid N'; this catches even a one-second program. The walk is
+        one syscall (~2 ms), cheap enough to run often."""
+        while not self.stop_event.is_set():
+            try:
+                names = {}
+                for p in psutil.process_iter(["name"]):
+                    n = p.info.get("name")
+                    if n:
+                        names[p.pid] = n
+                if names:
+                    if len(self._live_names) > 4096:
+                        self._live_names.clear()
+                    self._live_names.update(names)
+            except Exception:  # a hiccup must not kill the name snapshot
+                pass
+            self.stop_event.wait(0.5)
+
+    def _names_now(self):
+        """pid -> app name for this tick, refreshing paths on the way. The cache keeps the
+        name of a process that exited mid-tick: ETW already counted its bytes."""
+        names = {}
+        for p in psutil.process_iter(["name", "exe"]):
+            name = p.info.get("name") or "pid %d" % p.pid
+            if p.info.get("exe"):
+                self.paths.setdefault(name, p.info["exe"])
+            name = _owner_name(p, name)  # WebView2/Electron helpers: bill the app that owns them
+            names[p.pid] = name
+        self._pid_names.update(names)
+        if len(self._pid_names) > 4096:  # forget names of processes long gone
+            self._pid_names = dict(names)
+        return names
+
+    def _tick_estimate(self, record):
+        """Fallback when the ETW session could not start (not administrator): the old
+        process-counter estimate. It is a share, not a measurement - the diag says so."""
         day, cur, blind, pids, remote, loop, loopback_skipped = self._collect()
         deltas, scale, skipped, blocked_skipped, raw_delta, nic_tot = self._scale_deltas(
             cur, pids, record)
@@ -844,32 +986,30 @@ class AppTracker(threading.Thread):
                     self.store.add(day, name, d)
                     gained += d
         self.base = cur
-        self.diag = "v%s · %s processes with connections, %d read via WMI, %d loopback-only, %d blocked%s" % (
+        self.diag = ("v%s · estimated (run as administrator for exact per-app bytes): "
+                     "%s processes with connections, %d read via WMI, %d loopback-only, "
+                     "%d blocked%s") % (
             __version__, "?" if pids is None else len(set(pids)), len(blind),
             len(loop - (remote or set())), blocked_skipped,
             "" if scale in (0.0, 1.0) else ", scaled %.0f%% to NIC" % (scale * 100))
         logging.debug(
-            "tick: record=%s pids=%s raw_delta=%d nic_delta=%s scale=%.3f gained=%d "
+            "tick(estimate): record=%s pids=%s raw_delta=%d nic_delta=%s scale=%.3f gained=%d "
             "procs=%d blind=%d skipped_no_conn=%d loopback_skipped=%d blocked_skipped=%d",
             record, "?" if pids is None else len(pids), raw_delta, nic_tot, scale, gained,
             len(cur), len(blind), skipped, loopback_skipped, blocked_skipped)
         if record and self.totals_fn and time.time() - self.t_recon >= 60:
             self.t_recon = time.time()
-            self._reconcile(day, deltas)
-        if time.time() - self.t_flush >= self.FLUSH_EVERY:
-            self.t_flush = time.time()
-            self.store.flush()
+            self._reconcile()
 
-    def _reconcile(self, day, deltas):
+    def _reconcile(self):
         """Make each cycle day's Apps total equal the Overview's (ground truth).
 
         The meter counts every byte the counted NIC moved, per day; the apps are summed
-        from per-process counters, which miss some bytes (no readable counter, a window
-        the sampler was down) and invent others (device/driver I/O). tick()'s scale
-        removes the excess each tick, but a missed window leaves a lasting hole - and a
-        past bug can leave a lasting overcount. Once a minute, walk the cycle's days and
-        close each gap: hand the difference to that day's apps in proportion to what they
-        already recorded (or, with nothing recorded yet, to whatever just moved bytes)."""
+        from what the tracker measured per process. Whatever is left - traffic no process
+        could claim, a scale the clamp held back, a window the sampler missed - belongs to
+        no app, so it is parked on the System row. It is never shared out by history: that
+        is what used to spread one app's traffic across all of them, keeping the sum right
+        while making every per-app number wrong."""
         try:
             truth = self.totals_fn()
         except Exception as e:
@@ -885,45 +1025,28 @@ class AppTracker(threading.Thread):
         for d in sorted(set(ov_days) | set(by_day)):
             if d < start:
                 continue
-            self._reconcile_day(d, day, ov_days, by_day, deltas)
+            self._reconcile_day(d, ov_days, by_day)
 
-    def _reconcile_day(self, d, day, ov_days, by_day, deltas):
-        """One cycle day's gap closed and logged; nothing to do when it is jitter or empty."""
+    def _reconcile_day(self, d, ov_days, by_day):
+        """One cycle day's gap closed on System and logged; jitter is left alone."""
         mine = sum(n for _, n in by_day.get(d, ()))
-        diff = int(ov_days.get(d, 0)) - mine
+        truth = int(ov_days.get(d, 0))
+        diff = truth - mine
         if abs(diff) < 256 * 1024:  # sub-quarter-MB jitter is window alignment, not a real gap
             return
-        rows = by_day.get(d) or []
-        total = sum(n for _, n in rows)
-        if not rows and d == day and deltas:  # nothing on record: share it by what just moved
-            rows, total = [(n, b) for n, b in deltas if b > 0], sum(b for _, b in deltas if b > 0)
-        if not rows or total <= 0:
-            return
         if diff > 0:
-            self._distribute(d, rows, total, diff)
-        else:  # an old overcount: shrink proportionally, never below zero
-            diff = self._shrink(d, rows, total, diff)
-        logging.info("reconcile: %s apps=%d vs Overview=%d -> %+d across %d app(s)",
-                     d, mine, int(ov_days.get(d, 0)), diff, len(rows))
-
-    def _distribute(self, d, rows, total, diff):
-        """A day's missing bytes handed to its apps by share, remainder to the biggest one."""
-        add = {a: int(diff * n / total) for a, n in rows}
-        top = max(rows, key=lambda kv: kv[1])[0]  # rounding remainder to the biggest share
-        add[top] += diff - sum(add.values())
-        for a, b in add.items():
-            if b:
-                self.store.add(d, a, b)
-
-    def _shrink(self, d, rows, total, diff):
-        """A day's overcount taken back by share (never below zero); the real amount removed."""
-        real = 0
-        for a, n in rows:
-            s = min(n, int(-diff * n / total))
-            if s:
-                self.store.add(d, a, -s)
-                real += s
-        return -real
+            self.store.add(d, "System", diff)
+        else:  # overcount: take it back from System only, never below what System has
+            sys_now = sum(n for a, n in by_day.get(d, ()) if a == "System")
+            take = min(sys_now, -diff)
+            if not take:
+                logging.warning("reconcile: %s apps exceed Overview by %d and System has "
+                                "nothing to give back", d, -diff)
+                return
+            self.store.add(d, "System", -take)
+            diff = -take
+        logging.info("reconcile: %s apps=%d vs Overview=%d -> %+d on System",
+                     d, mine, truth, diff)
 
     def stop(self):
         self.stop_event.set()
