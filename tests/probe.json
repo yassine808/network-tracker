@@ -1,0 +1,19 @@
+[
+  {
+    "scenario": "curl",
+    "app": "curl.exe",
+    "truth": 20000000,
+    "row": 0,
+    "row_err": -100.0,
+    "nic": 26682627,
+    "nic_err": 33.413135,
+    "overview": 26688511,
+    "overview_err": 33.442555,
+    "others": {
+      "usque.exe": 24944998
+    },
+    "diag": "v1.3.2 \u00b7 ETW exact: 3 app(s), 3 pid(s), 104% wire/payload",
+    "minutes": 1.0,
+    "bursts": 2
+  }
+]
