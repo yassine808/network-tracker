@@ -10,8 +10,9 @@ import time
 from .common import IS_MAC, IS_WIN, NO_WINDOW, psutil
 
 VIRTUAL = re.compile(
-    r"loopback|^lo$|vethernet|vmware|virtualbox|vbox|hyper-v|docker|veth|virbr|br-|^tun|^tap|"
-    r"^wg\d|utun|awdl|llw|bridge|bluetooth|isatap|teredo|pseudo|npcap|tailscale|zerotier", re.I)
+    r"loopback|^lo$|virtual|vethernet|vmware|vmnet|virtualbox|vbox|hyper-v|docker|veth|virbr|br-|"
+    r"^tun|^tap|^wg\d|wireguard|openvpn|utun|awdl|llw|bridge|bluetooth|isatap|teredo|pseudo|"
+    r"npcap|tailscale|zerotier|wi-?fi direct|hosted network|wan miniport", re.I)
 # 802.11 covers USB dongles Windows names after their chipset ("802.11n USB Wireless LAN
 # Adapter") - a real Wi-Fi adapter the old pattern missed, leaving its users unable to pin
 # their hotspot
@@ -165,11 +166,26 @@ def get_ssid():
 
 
 def auto_iface(names, stats, counters):
-    """The interface that is probably the hotspot: the Wi-Fi adapter, else the busiest real one."""
+    """The interface that is probably the hotspot: the Wi-Fi adapter, else the busiest real one.
+
+    Virtual adapters are excluded first - on Windows a Wi-Fi-named *virtual* adapter (Wi-Fi
+    Direct, a hosted network, a VPN tunnel) can be up alongside the real radio, and counting
+    it would read near-zero while the metered link carries the traffic. Among several real
+    Wi-Fi adapters an up one wins, and the tie goes to the one that has carried more bytes,
+    so the choice does not flicker between two radios from sample to sample."""
+    def total(n):
+        c = counters.get(n)
+        return (c.bytes_recv + c.bytes_sent) if c else 0
+
+    def up(n):
+        return bool(n in stats and stats[n].isup)
+
     real = [n for n in names if not VIRTUAL.search(n)]
     wifi = [n for n in real if WIFI.search(n)]
-    if wifi:
-        return min(wifi, key=lambda n: not (n in stats and stats[n].isup))
-    up = [n for n in real if n in stats and stats[n].isup]
-    pool = up or real or list(names)
-    return max(pool, key=lambda n: counters[n].bytes_recv + counters[n].bytes_sent) if pool else None
+    wifi_up = [n for n in wifi if up(n)]
+    if wifi_up:
+        return max(wifi_up, key=total)
+    # No Wi-Fi radio is up. Reading a dead adapter would record nothing while the live link
+    # carries the traffic, so fall back to the busiest real interface that is up.
+    pool = [n for n in real if up(n)] or wifi or real or list(names)
+    return max(pool, key=total) if pool else None

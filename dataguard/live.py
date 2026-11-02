@@ -18,6 +18,12 @@ from .processes import top_processes
 # long sleep or a stalled SSID probe still records the real traffic it moved.
 COUNTER_JUMP = 2 * 2 ** 30
 
+# A start can bridge the gap the app left in the counters (a crash, a restart, a killed
+# process) by crediting the NIC delta since the last flush - but only for a gap this short.
+# Longer holes cannot prove the laptop stayed on the metered network the whole time, and
+# billing another network's bytes is worse than losing them.
+RECOVER_MAX = 3600  # seconds of downtime the counter anchor may bridge
+
 KILL_GB = 10  # hard daily stop: past this on the configured hotspot, the internet gets cut
 
 WARN_KINDS = ("level", "daily", "pace", "burst")  # alert kinds the dashboard shows as a warning veil
@@ -50,6 +56,7 @@ class Monitor:
 
     def __init__(self, store):
         self.store = store
+        self.boot = psutil.boot_time()    # counters restart with the machine: the anchor must match
         self.base = {}                    # nic -> (rx, tx) at the previous reading
         self.t_last = None
         self.ring = collections.deque()   # (t0, t1, rx, tx, counted) for the last 15 minutes
@@ -101,8 +108,17 @@ class Monitor:
         counters = psutil.net_io_counters(pernic=True) if counters is None else counters
         stats = psutil.net_if_stats() if stats is None else stats
         cfg = self.store.cfg  # one snapshot for the whole reading, as before the split
+        first = self.t_last is None
         frame = self._frame(cfg, now, counters, stats)
+        if first:
+            # Nothing was read before this start: credit what the counters moved while the app
+            # was not sampling (crash, restart, an hour closed) from the saved anchor.
+            self._recover(now, counters)
+            # Learn the gate now as well, so the first anchor already says whether this was
+            # the metered network - a crash right after a start must not lose that fact.
+            self._log_counting(cfg, self._counted(cfg, now, 0, 0))
         if frame is None:
+            self._save_anchor(now, counters)
             return
         t0, drx, dtx = frame
         was_counting = self.counting
@@ -127,6 +143,10 @@ class Monitor:
         if credited and (drx or dtx):
             self._record(t0, now, drx, dtx)
             self.check_burst(now)
+        # Save where the counters stood with the bytes just added: Store.flush writes both in
+        # one transaction, so a later start (or this one, after a crash) can credit the gap
+        # since this reading without ever counting a byte twice.
+        self._save_anchor(now, counters)
         if now - self.t_alert >= 10:
             self.t_alert = now
             if self.counting:  # off the configured network: no alerts, no projections, nothing calculated
@@ -178,8 +198,8 @@ class Monitor:
             return
         span = now - t0
         day, sent_rx, sent_tx = first, 0, 0
-        while day <= last:
-            boundary = min(now, datetime.combine(day + timedelta(days=1), datetime.min.time()).timestamp())
+        while day < last:
+            boundary = datetime.combine(day + timedelta(days=1), datetime.min.time()).timestamp()
             f = max(0.0, min(1.0, (boundary - t0) / span))
             up_rx, up_tx = int(drx * f), int(dtx * f)  # cumulative share through this day
             take_rx, take_tx = up_rx - sent_rx, up_tx - sent_tx
@@ -187,7 +207,92 @@ class Monitor:
                 self.store.add(day.isoformat(), take_rx, take_tx)
             sent_rx, sent_tx = up_rx, up_tx
             day += timedelta(days=1)
+        # The final day takes the remainder, not a truncated fraction: a float that lands at
+        # 0.9999999 must not shave a byte off the last day of a midnight crossing.
+        take_rx, take_tx = drx - sent_rx, dtx - sent_tx
+        if take_rx or take_tx:
+            self.store.add(last.isoformat(), take_rx, take_tx)
         logging.debug("sample: split %d/%d bytes %s -> %s across midnight", drx, dtx, first, last)
+
+    def _save_anchor(self, now, counters):
+        """Remember the NIC counters and the network gate at this reading.
+
+        Persisted by Store.flush in the same transaction as the day rows. A start then reads
+        the anchor and credits only the counter movement after it - see _recover."""
+        if not self.iface:
+            return
+        self.store.set_anchor({
+            "boot": self.boot,
+            "t": now,
+            "iface": self.iface,
+            "ssid": self.ssid,
+            "counted": bool(self.counting),
+            "counters": {n: [c.bytes_recv, c.bytes_sent] for n, c in counters.items()},
+        })
+
+    def _recover(self, now, counters):
+        """Credit the bytes the counted NIC moved while the app was not sampling.
+
+        Nothing was read between the last flush and this start, but the adapter kept counting.
+        The anchor says where its counters stood and on which network; this adds the difference.
+        It is refused unless every fact lines up - same boot, same interface, counting was on
+        when it was saved, the metered network is in use now, the counters only moved forward,
+        and the gap is within RECOVER_MAX - because crediting the wrong network's bytes to the
+        plan is worse than the undercount it would repair."""
+        anchor = self.store.anchor or {}
+        if not anchor:
+            return  # first run: there is no previous reading to bridge
+        try:
+            saved_t = float(anchor.get("t") or 0.0)
+            saved = (anchor.get("counters") or {}).get(self.iface or "")
+            cur = counters.get(self.iface or "")
+            saved_boot = float(anchor.get("boot") or 0.0)
+        except (AttributeError, TypeError, ValueError):
+            logging.warning("monitor: the counter anchor is unreadable; downtime traffic is left out")
+            return
+        gap = now - saved_t
+        if not saved or cur is None or saved_t <= 0:
+            return  # no reading for this interface: nothing trustworthy to compare
+        if abs(saved_boot - self.boot) > 1.0:
+            logging.debug("monitor: downtime traffic not recovered: the machine rebooted "
+                          "(adapter counters restart with it)")
+            return
+        if anchor.get("iface") != self.iface:
+            logging.info("monitor: downtime traffic not recovered: the counted interface changed "
+                         "(%r -> %r)", anchor.get("iface"), self.iface)
+            return
+        if gap <= 0:
+            return
+        if gap > RECOVER_MAX:
+            logging.info("monitor: the app was not sampling for %.1f h; that traffic is left out "
+                         "(recovery bridges at most %.0f min)", gap / 3600.0, RECOVER_MAX / 60.0)
+            return
+        if not anchor.get("counted"):
+            logging.debug("monitor: downtime traffic not recovered: not counting when it was saved")
+            return
+        drx = int(cur.bytes_recv) - int(saved[0])
+        dtx = int(cur.bytes_sent) - int(saved[1])
+        if drx < 0 or dtx < 0:
+            logging.info("monitor: an adapter counter went backwards while the app was away "
+                         "(%d/%d); downtime traffic not credited", drx, dtx)
+            return
+        if not (drx or dtx):
+            return
+        if self.store.cfg["ssid"]:
+            if not self.ssid:
+                self.ssid, self.ssid_t = get_ssid(), now
+            if self.on_network() is not True:
+                logging.info("monitor: downtime traffic not recovered: the metered network is not "
+                             "in use now")
+                return
+        limit = max(COUNTER_JUMP, int(400_000_000 * gap))
+        if drx + dtx > limit:
+            logging.warning("monitor: %d bytes while the app was away is more than the link can "
+                            "move in %.0f s; not credited", drx + dtx, gap)
+            return
+        self._record(saved_t, now, drx, dtx)
+        logging.info("monitor: recovered %d bytes (%d down, %d up) from the %.0f s the app was "
+                     "not sampling", drx + dtx, drx, dtx, gap)
 
     def _nic_delta(self, nic, cur, prev, limit):
         """One NIC's plausible delta, or None when there is nothing (or a lying counter) to count.
@@ -258,6 +363,10 @@ class Monitor:
             logging.info("monitor: counting %s (ssid=%s configured=%s mode=%s)",
                          "ON" if counted else "OFF", self.ssid, cfg["ssid"],
                          cfg.get("count_mode", "auto"))
+            # The anchor carries the gate. Write it with the day rows now, so a crash before
+            # the next flush can never make a later start credit another network's traffic.
+            with self.store.lock:
+                self.store.dirty = True
         self.counting = counted
 
     def window(self, ref, span, nbins, counted_only=False):

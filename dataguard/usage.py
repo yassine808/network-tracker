@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS days (day TEXT PRIMARY KEY, rx INTEGER NOT NULL, tx I
 CREATE TABLE IF NOT EXISTS cal (cycle TEXT PRIMARY KEY, offset INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS fired (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS alerts (seq INTEGER PRIMARY KEY AUTOINCREMENT, t TEXT NOT NULL,
-                                   kind TEXT NOT NULL, title TEXT NOT NULL, msg TEXT NOT NULL);"""
+                                   kind TEXT NOT NULL, title TEXT NOT NULL, msg TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS anchor (key TEXT PRIMARY KEY, value TEXT NOT NULL);"""
 
 USAGE_FILE = "usage.json"
 
@@ -59,6 +60,7 @@ class Store:
         self.fired = {}    # which alerts were already shown
         self.log = []      # recent alerts, newest last (display); the table keeps the full history
         self._pending = []  # alert rows not yet written to the database
+        self.anchor = {}   # NIC counters + gate at the last flush: bridges app downtime (see live._recover)
         self.dirty = False
         with self.lock:
             self.conn.executescript(_SCHEMA)
@@ -168,6 +170,19 @@ class Store:
             self.log = [{"t": t, "kind": k, "title": ti, "msg": m} for t, k, ti, m in self.conn.execute(
                 "SELECT t, kind, title, msg FROM alerts ORDER BY seq DESC LIMIT 40")]
             self.log.reverse()
+            self.anchor = self._load_anchor()
+
+    def _load_anchor(self):
+        """The counter anchor written with the last flush, or {} on a fresh database."""
+        row = self.conn.execute("SELECT value FROM anchor WHERE key = 'last'").fetchone()
+        if not row:
+            return {}
+        try:
+            anchor = json.loads(row[0])
+        except ValueError:
+            logging.warning("usage: the counter anchor is unreadable; starting without one")
+            return {}
+        return anchor if isinstance(anchor, dict) else {}
 
     def _load_settings(self):
         rows = self.conn.execute("SELECT key, value FROM settings").fetchall()
@@ -225,6 +240,12 @@ class Store:
                     self.conn.execute("DELETE FROM fired")
                     self.conn.executemany("INSERT INTO fired (key, value) VALUES (?, ?)",
                                           [(k, json.dumps(v)) for k, v in self.fired.items()])
+                    # The anchor belongs in the same transaction as the day rows: a later start
+                    # credits only what moved after this counter reading, never a byte twice.
+                    self.conn.execute("DELETE FROM anchor")
+                    if self.anchor:
+                        self.conn.execute("INSERT INTO anchor (key, value) VALUES ('last', ?)",
+                                          (json.dumps(self.anchor),))
                     if self._pending:
                         self.conn.executemany("INSERT INTO alerts (t, kind, title, msg) VALUES (?, ?, ?, ?)",
                                               self._pending)
@@ -248,6 +269,11 @@ class Store:
             d[0] += rx
             d[1] += tx
             self.dirty = True
+
+    def set_anchor(self, anchor):
+        """Remember the NIC counters at the last reading (persisted with the next flush)."""
+        with self.lock:
+            self.anchor = anchor
 
     def add_alert(self, kind, title, msg):
         with self.lock:

@@ -879,8 +879,15 @@ class AppTracker(threading.Thread):
             return None
         now = int(truth["days"].get(date.today().isoformat(), 0))
         prev, self._last_today = self._last_today, now
-        if prev is None or now < prev:
-            return None  # first tick, or midnight: yesterday's total is not this tick's traffic
+        if prev is None:
+            # First tick after a start: hand out exactly what the Overview already has that
+            # the rows do not - the recovered downtime, the seconds before this tick. Without
+            # this the panel would sit behind the meter for the rest of the day.
+            day = date.today().isoformat()
+            mine = sum(n for d, _a, n in self.store.rows_since(day))
+            return now - mine
+        if now < prev:
+            return None  # midnight: yesterday's total is not this tick's traffic
         return now - prev
 
     @staticmethod

@@ -6,7 +6,7 @@ DataGuard is a small Windows-first desktop tool that counts every byte your lapt
 receives while it is tethered to your phone's hotspot, totals it against your billing cycle, warns
 you before you run out, and can cut the internet when a daily cap is hit.
 
-**[⬇ Download DataGuard 1.4.0](https://github.com/yassine808/network-tracker/releases/latest)**
+**[⬇ Download DataGuard 1.4.1](https://github.com/yassine808/network-tracker/releases/latest)**
 — per-user install, no admin rights, no Python required (the installer bundles everything).
 Prefer to build it yourself? See [Install](#install) below.
 
@@ -27,7 +27,7 @@ Prefer to build it yourself? See [Install](#install) below.
   `http://127.0.0.1:8787`, no accounts, no cloud, **no outbound internet connections at all** —
   the installed app firewall-seals its own interpreter so it physically cannot phone home.
 
-Current version: **1.4.0** (`dataguard/__init__.py`)
+Current version: **1.4.1** (`dataguard/__init__.py`)
 
 ---
 
@@ -54,7 +54,7 @@ Current version: **1.4.0** (`dataguard/__init__.py`)
 
 1. Download `DataGuard-Setup-v<version>.exe` from the
    [GitHub Releases page](https://github.com/yassine808/network-tracker/releases)
-   (current: `DataGuard-Setup-v1.4.0.exe`).
+   (current: `DataGuard-Setup-v1.4.1.exe`).
 2. Run it. It installs per-user into `%LOCALAPPDATA%\Programs\DataGuard` — **no admin rights needed**.
 3. Finish the wizard. **"Start DataGuard now"** is pre-checked, so DataGuard starts and opens the
    dashboard. Auto-start at every login is set up for you (no checkbox to miss). Silent installs
@@ -205,6 +205,18 @@ python dataguard.py --home D:\portable-dg run
   The Wi-Fi name is re-read every 5 s (30 s when Windows hides it, since that probe is slow),
   so the cached name is never older than the window it decides; it is also read immediately
   when the link comes back up or the dashboard is opened.
+- **Downtime.** The adapter counter and the network gate are saved with every flush (60 s), in
+  the same transaction as the daily rows. If DataGuard was closed, killed or crashed, the next
+  start credits what the adapter counted since that save, so an app restart no longer leaves a
+  hole in the day. It is credited only when every fact agrees: the same boot, the same counted
+  interface, counting was on when the save was made, the metered network is in use now, the
+  counters only moved forward, and the gap is at most one hour. Anything else might be another
+  network's traffic, so it is left out (and logged). A reboot starts the counters over, so
+  nothing is carried across it.
+- **Interface pick.** `auto` follows the real Wi-Fi radio and ignores virtual ones (Wi-Fi Direct,
+  hosted network, Hyper-V, VPN tunnels, loopback), because a Wi-Fi-named virtual adapter can sit
+  next to the real radio and report nothing. If no Wi-Fi radio is up, it counts the busiest real
+  adapter that is up, instead of a dead one.
 - **Billing cycle.** `[reset_day of this month, reset_day of next month)`. All totals are recomputed
   from the daily rows on every read — there is no running counter to drift.
 - **Reserve.** `budget = plan × (1 − reserve_pct/100)`. The reserve is shown as part of the plan but
@@ -248,8 +260,9 @@ Defaults live in `dataguard/settings.py` (`DEFAULTS`); all are validated on writ
 | `notify` | `true` | Desktop notifications |
 | `port` | `8787` | Dashboard port (1024–65535) |
 
-Hard-coded safety values: `KILL_GB = 10` (daily internet-cut cap, `dataguard/live.py`),
-`KEEP_DAYS = 400` (history retention), `LOG_CAP = 3 MB` (`dataguard.log`).
+Hard-coded safety values: `KILL_GB = 10` (daily internet-cut cap), `RECOVER_MAX = 3600` (how
+long a gap the counter anchor may bridge, in seconds), `KEEP_DAYS = 400` (history retention),
+`LOG_CAP = 16 MB` (`dataguard.log`).
 
 ---
 
@@ -346,7 +359,10 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    S["read per-NIC byte counters<br/>+ interface stats"] --> I1["pick interface<br/>(cfg.iface or auto_iface)"]
+    S["read per-NIC byte counters<br/>+ interface stats"] --> F0{"first sample<br/>after a start?"}
+    F0 -->|yes| REC["recover the gap from the saved<br/>counter anchor (same boot, interface,<br/>gate, network; ≤ 1 h)"]
+    F0 -->|no| I1
+    REC --> I1["pick interface<br/>(cfg.iface or auto_iface)"]
     I1 --> D["compute deltas vs previous sample"]
     D --> Q{"delta sane?"}
     Q -->|"negative + huge"| Q1["counter reset → count from zero"]
@@ -366,10 +382,10 @@ flowchart TD
     Z -->|no| A2
     ADD --> A1{"10 s elapsed?"}
     A1 -->|yes and counted| AL["check_alerts()<br/>% levels, daily, pace"]
-    A1 -->|no| A2["check_kill()<br/>(at most every 60 s)"]
+    A1 -->|no| A2["save counter anchor<br/>→ check_kill()"]
     AL --> A2
     A2 --> F{"60 s elapsed?"}
-    F -->|yes| FL["store.flush() → SQLite"]
+    F -->|yes| FL["store.flush() → SQLite<br/>(day rows + anchor, one transaction)"]
     F -->|no| LOOP["sleep 1 s (open) / 5 s (idle)"]
     FL --> LOOP
     LOOP --> S
@@ -499,7 +515,7 @@ shutdown), so the disk sees very little I/O. Rows older than 400 days are pruned
 ```mermaid
 flowchart LR
     subgraph DEV["Developer"]
-        T["git tag v1.4.0<br/>(must equal __version__)"]
+        T["git tag v1.4.1<br/>(must equal __version__)"]
     end
 
     subgraph CI["GitHub Actions — windows-latest"]

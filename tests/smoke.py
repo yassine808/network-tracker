@@ -244,6 +244,116 @@ def test_nic_delta(tmp):
         st.conn.close()
 
 
+def test_recover_gap(tmp):
+    """Bytes moved while the app was not sampling are credited from the saved counter anchor.
+
+    A crash, a restart or an hour closed leaves a hole between the last flush and the first
+    reading; the adapter counted through it. Each refusal case below is a way the anchor could
+    belong to a different machine, link or network - then the bytes must stay out."""
+    st = Store(tmp)
+    orig_ssid = live_mod.get_ssid
+    now = time.time()
+    today = date.today().isoformat()
+    try:
+        st.set_config({"ssid": "", "iface": "nic1", "burst_mb_per_min": 0})
+
+        def counters(rx, tx):
+            return {"nic1": SimpleNamespace(bytes_recv=rx, bytes_sent=tx)}
+
+        def start(anchor, rx, tx):
+            st.days = {}
+            st.anchor = dict(anchor)
+            mon = Monitor(st)
+            mon.boot = 100.0
+            mon.check_kill = lambda *a, **k: None
+            mon.check_alerts = lambda *a, **k: None
+            mon.sample(now=now, counters=counters(rx, tx), stats={})
+            return mon
+
+        def anchor(**over):
+            base = {"boot": 100.0, "t": now - 120, "iface": "nic1", "ssid": "",
+                    "counted": True, "counters": {"nic1": [1_000_000, 100_000]}}
+            base.update(over)
+            return base
+
+        start(anchor(), 3_000_000, 400_000)
+        check(st.days.get(today) == [2_000_000, 300_000],
+              "recover: the downtime's bytes reach the meter", str(st.days.get(today)))
+        # The same start saved a fresh anchor at the current counters: a second start (a crash
+        # right after boot, then a relaunch) must not credit them again.
+        mon2 = Monitor(st)
+        mon2.boot = 100.0
+        mon2.check_kill = lambda *a, **k: None
+        mon2.check_alerts = lambda *a, **k: None
+        mon2.sample(now=now + 1, counters=counters(3_000_000, 400_000), stats={})
+        check(st.days.get(today) == [2_000_000, 300_000],
+              "recover: a byte is never credited twice", str(st.days.get(today)))
+
+        start(anchor(boot=102.0), 3_000_000, 400_000)
+        check(not st.days, "recover: a different boot is refused", str(st.days))
+        start(anchor(counted=False), 3_000_000, 400_000)
+        check(not st.days, "recover: a save made while counting was off is refused", str(st.days))
+        start(anchor(iface="nic2"), 3_000_000, 400_000)
+        check(not st.days, "recover: a different counted interface is refused", str(st.days))
+        start(anchor(t=now - live_mod.RECOVER_MAX - 5), 3_000_000, 400_000)
+        check(not st.days, "recover: a gap past the recovery window is refused", str(st.days))
+        start(anchor(), 500_000, 50_000)
+        check(not st.days, "recover: counters that went backwards are refused", str(st.days))
+
+        # The network gate still decides: a different Wi-Fi now means the gap may have been
+        # spent elsewhere, so nothing is billed.
+        st.set_config({"ssid": "HOTSPOT"})
+        live_mod.get_ssid = lambda: "SOMEONE-ELSE"
+        start(anchor(), 3_000_000, 400_000)
+        check(not st.days, "recover: a different current network is refused", str(st.days))
+        live_mod.get_ssid = lambda: "HOTSPOT"
+        start(anchor(), 3_000_000, 400_000)
+        check(st.days.get(today) == [2_000_000, 300_000],
+              "recover: the metered network is credited", str(st.days.get(today)))
+
+        # The anchor is persisted with the day rows by flush, and read back by the next Store.
+        st.flush(force=True)
+        st2 = Store(tmp)
+        try:
+            check(st2.anchor.get("iface") == "nic1" and st2.anchor.get("counters"),
+                  "recover: flush persists the counter anchor", str(st2.anchor)[:80])
+            check(st2.anchor.get("counted") is True,
+                  "recover: the anchor carries the network gate", str(st2.anchor.get("counted")))
+        finally:
+            st2.conn.close()
+    finally:
+        live_mod.get_ssid = orig_ssid
+        st.conn.close()
+
+
+def test_auto_iface():
+    """`auto` never counts a virtual/Wi-Fi-Direct adapter and never a dead radio."""
+    from dataguard.interfaces import auto_iface
+
+    def stat(isup):
+        return SimpleNamespace(isup=isup)
+
+    def io(rx, tx):
+        return SimpleNamespace(bytes_recv=rx, bytes_sent=tx)
+
+    counters = {"Wi-Fi": io(10, 10), "Ethernet": io(5 * 10 ** 9, 10 ** 9),
+                "Microsoft Wi-Fi Direct Virtual Adapter": io(9 * 10 ** 9, 9 * 10 ** 9),
+                "Loopback Pseudo-Interface 1": io(10 ** 9, 10 ** 9)}
+    stats = {n: stat(True) for n in counters}
+    check(auto_iface(list(counters), stats, counters) == "Wi-Fi",
+          "iface: a Wi-Fi Direct virtual adapter never beats the real radio",
+          str(auto_iface(list(counters), stats, counters)))
+    stats["Wi-Fi"] = stat(False)  # radio down: the live wired link must be counted, not a dead radio
+    check(auto_iface(list(counters), stats, counters) == "Ethernet",
+          "iface: a down Wi-Fi radio yields to the live adapter",
+          str(auto_iface(list(counters), stats, counters)))
+    solo = {"Ethernet": io(5 * 10 ** 9, 10 ** 9), "OpenVPN TAP-Windows6": io(4 * 10 ** 9, 10 ** 9)}
+    solo_stats = {n: stat(True) for n in solo}
+    check(auto_iface(list(solo), solo_stats, solo) == "Ethernet",
+          "iface: a named tunnel is not the metered link",
+          str(auto_iface(list(solo), solo_stats, solo)))
+
+
 def test_overview_total(tmp):
     """The Overview total equals the bytes the counted NIC really moved - to the byte.
 
@@ -337,6 +447,19 @@ def test_app_allocation(tmp):
           "apps: a live process always names itself")
     check(tr._app_for_pid(7, {}) == "pid 7", "apps: an unknown pid says so", tr._app_for_pid(7, {}))
 
+    # The first tick after a start hands out the Overview bytes the rows do not have yet, so
+    # a restart (and its recovered downtime) cannot leave the Apps panel behind the meter.
+    st_apps = AppStore(tmp / "apps2")
+    tr2 = AppTracker(st_apps)
+    today = date.today().isoformat()
+    st_apps.add(today, "old.exe", 2_000)
+    tr2.totals_fn = lambda: {"start": today, "days": {today: 5_000}}
+    first = tr2._wire_delta()
+    check(first == 3_000, "apps: the first tick credits what the rows are missing", str(first))
+    again = tr2._wire_delta()
+    check(again == 0, "apps: the next tick hands out only the new bytes", str(again))
+    st_apps.conn.close()
+
     from dataguard.netwatch import _proc_start
     path = "\\Device\\HarddiskVolume5\\Windows\\System32\\curl.exe"
     payload = b"\x34\x12\x00\x00" + b"\x00" * 8 + path.encode("utf-16-le") + b"\x00\x00" * 4
@@ -360,6 +483,14 @@ def test_midnight_split(tmp):
         mon._record(t0 + 40, t0 + 44, 900, 90)  # fully inside one day
         check(st.days.get("2026-10-30") == [1_100, 110],
               "usage: a same-day sample is not split", str(st.days))
+        # An odd byte count must survive the split: the last day takes the remainder, not a
+        # truncated fraction (0.9999999 of the window used to shave a byte off).
+        before = sum(sum(v) for v in st.days.values())
+        late = datetime(2026, 10, 30, 23, 59, 59).timestamp()
+        mon._record(late, late + 3, 1001, 7)  # 1 s on the 30th, 2 s on the 31st
+        after = sum(sum(v) for v in st.days.values())
+        check(after - before == 1008,
+              "usage: a midnight split keeps every byte", f"{after - before} != 1008")
     finally:
         st.conn.close()
 
@@ -475,6 +606,10 @@ def main():
         test_link_change_refresh(tmp / "link")
         print("nic delta")
         test_nic_delta(tmp / "nic")
+        print("recover gap")
+        test_recover_gap(tmp / "recover")
+        print("auto interface")
+        test_auto_iface()
         print("overview total")
         test_overview_total(tmp / "total")
         print("apps allocation")

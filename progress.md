@@ -4,6 +4,8 @@
 - [x] Find why the Apps rows and the Overview disagree, and close the gap for good
 - [x] Make short-lived processes land on their own real name, not "pid N"
 - [x] Ship 1.4.0: bump, pass all four gates locally, tag, publish the exe
+- [x] Make the Overview counter lose no bytes: bridge app downtime, keep the midnight
+      remainder, fix `auto` picking a virtual or dead adapter
 - [ ] (nothing in flight — awaiting next task)
 
 ## Log
@@ -186,3 +188,44 @@
 - Next: install `bandit==1.8.6` (and ideally pip-audit) locally, or the local gate will keep
   disagreeing with CI. The pillow / Python-floor item in `TO-DO.md` still accounts for the 58
   Dependabot alerts GitHub reports on every push.
+
+### 2026-11-02 — the meter loses no bytes across downtime, midnight and a bad interface pick
+- Goal: "make the counting as accurate as possible", scoped with Yassine to the **Overview
+  total** (not per-app, not carrier calibration). The total already matched the counted NIC
+  counter; the task was every path where bytes could still be dropped.
+- Done:
+  - `usage.Store`: new `anchor` table holding the NIC counters, boot time, interface, SSID and
+    the gate at the last reading. `flush()` writes it in the **same transaction** as the day
+    rows (an anchor newer than the rows would double-count; older would lose).
+  - `live.Monitor._save_anchor` runs after every reading; `_recover` runs once on the first
+    reading after a start and credits the counter delta since the anchor. Refused unless the
+    boot is the same, the counted interface is the same, counting was on when it was saved, the
+    metered network is in use now, the counters only moved forward, and the gap is
+    ≤ `RECOVER_MAX` (3600 s). A mismatch is logged; nothing is guessed.
+  - The first reading now evaluates the gate too, so the very first anchor carries it.
+  - `_record`: the last day of a midnight split takes the **remainder** instead of a truncated
+    fraction (a float at 0.9999999 used to shave a byte).
+  - `interfaces`: `VIRTUAL` gained `virtual` (catches "Microsoft Wi-Fi Direct Virtual Adapter"),
+    `wi-?fi direct`, `hosted network`, `wan miniport`, `wireguard`, `openvpn`, `vmnet`.
+    `auto_iface` now ignores virtual adapters, prefers an **up** real Wi-Fi radio (ties by bytes
+    carried, so it cannot flicker), and when no Wi-Fi is up counts the busiest real adapter that
+    *is* up instead of a dead radio.
+  - `AppTracker._wire_delta`: the first tick after a start hands out `Overview.today − app rows`,
+    so the recovered downtime (and the seconds before the first tick) still appear in the Apps
+    sum instead of leaving the panel behind the meter until midnight.
+  - README: "Downtime" and "Interface pick" bullets, the sampling diagram, and `RECOVER_MAX` in
+    the hard-coded values (also corrected `LOG_CAP`, documented as 3 MB, to its real 16 MB).
+  - `tests/smoke.py`: `test_recover_gap` (11 checks: credit, no double credit, boot/interface/
+    gate/network/backwards/too-long refusals, flush round-trip), `test_auto_iface` (3 checks),
+    a midnight-remainder check, and a first-tick Apps check.
+- Verified: `python tests/smoke.py` exit 0 (87 checks), `ruff check dataguard/ dataguard.py`
+  and `ruff check tests/smoke.py --ignore E402` clean, `compileall` clean. Live on the real
+  Ethernet adapter, temp home: session 1 credited 77,258/42,196 B and saved an anchor; 3 MB was
+  downloaded with nothing running; the next start credited 3,986,036/1,213,770 B — the NIC
+  delta since the anchor, to within the post-sample traffic (115 B) — and a second restart
+  credited only the new traffic (1,271,129 B), so no byte was counted twice.
+- Limits kept on purpose: a window straddling a Wi-Fi change is still dropped whole (crediting
+  it would bill one network for the other's bytes), and a gap beyond one hour is left out (it
+  cannot prove the laptop stayed on the hotspot).
+- Next: nothing in flight. Remaining error sources are the transition window above, a gap
+  longer than an hour, and an adapter whose counter resets.
