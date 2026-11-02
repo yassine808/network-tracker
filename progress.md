@@ -6,6 +6,7 @@
 - [x] Ship 1.4.0: bump, pass all four gates locally, tag, publish the exe
 - [x] Make the Overview counter lose no bytes: bridge app downtime, keep the midnight
       remainder, fix `auto` picking a virtual or dead adapter
+- [x] Ship 1.4.1: bump, gates, build `DataGuard-Setup-v1.4.1.exe`, tag, publish
 - [ ] (nothing in flight — awaiting next task)
 
 ## Log
@@ -229,3 +230,15 @@
   cannot prove the laptop stayed on the hotspot).
 - Next: nothing in flight. Remaining error sources are the transition window above, a gap
   longer than an hour, and an adapter whose counter resets.
+
+### 2026-11-02 — ship 1.4.1 (the counting fix)
+- Goal: put the byte-counting work on a tag and publish the setup exe.
+- Done: bumped __version__ to 1.4.1 and the README version/download/filename/diagram references;
+  installed Inno Setup 6.7.3 (winget); built `dist\DataGuard-Setup-v1.4.1.exe` locally with
+  `installer\build.ps1 -Version v1.4.1` (payload smoke test passed, ISCC compile 8.7 s, 13.2 MB);
+  committed by name, tagged `v1.4.1`, pushed `main` and the tag; the Release workflow built
+  the zip + setup exe and published them.
+- Verified: `python tests/smoke.py` exit 0 (87 checks), `ruff` and `compileall` clean before
+  the build; payload reports 1.4.1; CI Release run 41493383277 completed successfully; the release
+  has `DataGuard-Setup-v1.4.1.exe` (13,812,258 B) and `dataguard-v1.4.1.zip` (100,850 B).
+- Next: nothing in flight.
